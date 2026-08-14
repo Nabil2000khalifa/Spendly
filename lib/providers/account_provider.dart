@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../db/database_helper.dart';
 import '../models/account.dart';
 import '../models/transfer.dart';
+import '../models/account_transaction_item.dart';
 
 class AccountProvider extends ChangeNotifier {
   final DatabaseHelper _db = DatabaseHelper();
@@ -122,5 +123,28 @@ class AccountProvider extends ChangeNotifier {
 
   Future<List<AccountTransfer>> getTransfersForAccount(int accountId) async {
     return await _db.getTransfers(accountId: accountId);
+  }
+
+  Future<Map<String, double>> getAccountMetrics(int accountId) async {
+    return await _db.getAccountMetrics(accountId);
+  }
+
+  Future<List<AccountTransactionItem>> getUnifiedTransactions(int accountId) async {
+    final raw = await _db.getUnifiedAccountTransactionsRaw(accountId);
+    final items = raw.map((map) {
+      return AccountTransactionItem(
+        id: map['id'] as String,
+        title: map['title'] as String,
+        subtitle: map['subtitle'] as String,
+        amount: map['amount'] as double,
+        isPositive: map['isPositive'] as bool,
+        itemType: map['itemType'] as String,
+        date: DateTime.parse(map['date'] as String),
+        icon: map['icon'] as String,
+        note: map['note'] as String?,
+      );
+    }).toList();
+    items.sort((a, b) => b.date.compareTo(a.date));
+    return items;
   }
 }

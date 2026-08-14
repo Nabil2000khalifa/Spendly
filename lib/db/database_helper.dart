@@ -683,4 +683,150 @@ class DatabaseHelper {
     final db = await database;
     return await db.delete('transfers', where: 'id = ?', whereArgs: [id]);
   }
+
+  // ─── Account Metrics & Unified Ledger ──────────────────────────────────────
+
+  Future<Map<String, double>> getAccountMetrics(int accountId) async {
+    final db = await database;
+    final expRes = await db.rawQuery('''
+      SELECT 
+        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense
+      FROM expenses
+      WHERE account_id = ?
+    ''', [accountId]);
+    final totalIncome = (expRes.first['income'] as num?)?.toDouble() ?? 0.0;
+    final totalExpense = (expRes.first['expense'] as num?)?.toDouble() ?? 0.0;
+
+    final trInRes = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE to_account_id = ?', [accountId]);
+    final transfersIn = (trInRes.first['total'] as num?)?.toDouble() ?? 0.0;
+
+    final trOutRes = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE from_account_id = ?', [accountId]);
+    final transfersOut = (trOutRes.first['total'] as num?)?.toDouble() ?? 0.0;
+
+    return {
+      'income': totalIncome,
+      'expense': totalExpense,
+      'transfersIn': transfersIn,
+      'transfersOut': transfersOut,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> getUnifiedAccountTransactionsRaw(int accountId) async {
+    final db = await database;
+    final items = <Map<String, dynamic>>[];
+
+    // 1. Expenses & Incomes
+    final expMaps = await db.rawQuery('''
+      SELECT e.*, c.icon as cat_icon, c.name as cat_name 
+      FROM expenses e
+      LEFT JOIN categories c ON e.category_id = c.id
+      WHERE e.account_id = ?
+    ''', [accountId]);
+    for (final row in expMaps) {
+      final isExp = row['type'] == 'expense';
+      items.add({
+        'id': 'exp_${row['id']}',
+        'title': row['title'] as String,
+        'subtitle': (row['cat_name'] as String?) ?? 'General',
+        'amount': (row['amount'] as num).toDouble(),
+        'isPositive': !isExp,
+        'itemType': isExp ? 'expense' : 'income',
+        'date': row['date'] as String,
+        'icon': (row['cat_icon'] as String?) ?? (isExp ? '💸' : '💰'),
+        'note': row['note'] as String?,
+      });
+    }
+
+    // 2. Transfers Out
+    final trOutMaps = await db.rawQuery('''
+      SELECT t.*, a.name as target_name, a.icon as target_icon
+      FROM transfers t
+      JOIN accounts a ON t.to_account_id = a.id
+      WHERE t.from_account_id = ?
+    ''', [accountId]);
+    for (final row in trOutMaps) {
+      items.add({
+        'id': 'tr_out_${row['id']}',
+        'title': 'Transfer to ${row['target_name']}',
+        'subtitle': 'Transfer Out',
+        'amount': (row['amount'] as num).toDouble(),
+        'isPositive': false,
+        'itemType': 'transfer_out',
+        'date': row['date'] as String,
+        'icon': (row['target_icon'] as String?) ?? '↗️',
+        'note': row['note'] as String?,
+      });
+    }
+
+    // 3. Transfers In
+    final trInMaps = await db.rawQuery('''
+      SELECT t.*, a.name as source_name, a.icon as source_icon
+      FROM transfers t
+      JOIN accounts a ON t.from_account_id = a.id
+      WHERE t.to_account_id = ?
+    ''', [accountId]);
+    for (final row in trInMaps) {
+      items.add({
+        'id': 'tr_in_${row['id']}',
+        'title': 'Transfer from ${row['source_name']}',
+        'subtitle': 'Transfer In',
+        'amount': (row['amount'] as num).toDouble(),
+        'isPositive': true,
+        'itemType': 'transfer_in',
+        'date': row['date'] as String,
+        'icon': (row['source_icon'] as String?) ?? '↘️',
+        'note': row['note'] as String?,
+      });
+    }
+
+    // 4. Loan Ledger Entries
+    final loanLedgerMaps = await db.rawQuery('''
+      SELECT ll.*, l.type as loan_type, p.name as person_name
+      FROM loan_ledger ll
+      JOIN loans l ON ll.loan_id = l.id
+      JOIN persons p ON l.person_id = p.id
+      WHERE ll.account_id = ?
+    ''', [accountId]);
+    for (final row in loanLedgerMaps) {
+      final entryType = row['entry_type'] as String;
+      final loanType = row['loan_type'] as String;
+      final personName = row['person_name'] as String;
+      final amt = ((row['amount_paise'] as num).toDouble()) / 100.0;
+      bool isPos = false;
+      String title = row['description'] as String;
+
+      if (entryType == 'principal') {
+        if (loanType == 'lent') {
+          isPos = false;
+          title = 'Lent to $personName';
+        } else {
+          isPos = true;
+          title = 'Borrowed from $personName';
+        }
+      } else if (entryType == 'payment') {
+        if (loanType == 'lent') {
+          isPos = true;
+          title = 'Repayment from $personName';
+        } else {
+          isPos = false;
+          title = 'Repayment to $personName';
+        }
+      }
+
+      items.add({
+        'id': 'loan_ll_${row['id']}',
+        'title': title,
+        'subtitle': 'Loan ($personName)',
+        'amount': amt,
+        'isPositive': isPos,
+        'itemType': 'loan',
+        'date': row['entry_date'] as String,
+        'icon': isPos ? '🤝' : '📤',
+        'note': row['description'] as String?,
+      });
+    }
+
+    return items;
+  }
 }

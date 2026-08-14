@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../models/account.dart';
-import '../models/expense.dart';
-import '../models/transfer.dart';
+import '../models/account_transaction_item.dart';
 import '../providers/account_provider.dart';
-import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
 import 'add_account_screen.dart';
 import 'add_transfer_screen.dart';
@@ -20,12 +18,61 @@ class AccountDetailScreen extends StatefulWidget {
 
 class _AccountDetailScreenState extends State<AccountDetailScreen> {
   String _dateFilter = 'all'; // 'this_month' | 'last_month' | 'all'
+  String _typeFilter = 'all'; // 'all' | 'expense' | 'income' | 'transfer' | 'loan'
+  String _searchQuery = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleDeactive(Account account, AccountProvider provider) async {
+    final hasTx = await provider.hasTransactions(account.id!);
+    if (!mounted) return;
+
+    if (account.isActive && hasTx) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E2E),
+          title: const Text('Deactivate Account', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            'This account has transaction history. Deactivating will hide it from new transaction pickers, but preserve all past transactions and statistics.',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await provider.deactivateAccount(account.id!);
+                if (mounted) setState(() {});
+              },
+              child: const Text('Deactivate', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+    } else {
+      if (account.isActive) {
+        await provider.deactivateAccount(account.id!);
+      } else {
+        await provider.reactivateAccount(account.id!);
+      }
+      if (mounted) setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final accountProvider = context.watch<AccountProvider>();
     final settings = context.watch<SettingsProvider>();
-    final expenseProvider = context.watch<ExpenseProvider>();
     final account = accountProvider.getAccountById(widget.accountId);
 
     if (account == null) {
@@ -33,37 +80,12 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
         backgroundColor: const Color(0xFF12121F),
         appBar: AppBar(backgroundColor: const Color(0xFF12121F)),
         body: const Center(
-            child: Text('Account not found', style: TextStyle(color: Colors.white))),
+          child: Text('Account not found', style: TextStyle(color: Colors.white)),
+        ),
       );
     }
 
     final balance = accountProvider.getBalance(account.id!);
-    final allExpenses = expenseProvider.expenses
-        .where((e) => e.accountId == account.id)
-        .toList();
-
-    // Filter by date
-    final now = DateTime.now();
-    List<Expense> filteredExpenses = allExpenses;
-    if (_dateFilter == 'this_month') {
-      filteredExpenses = allExpenses
-          .where((e) => e.date.month == now.month && e.date.year == now.year)
-          .toList();
-    } else if (_dateFilter == 'last_month') {
-      final lastM = now.month == 1 ? 12 : now.month - 1;
-      final lastY = now.month == 1 ? now.year - 1 : now.year;
-      filteredExpenses = allExpenses
-          .where((e) => e.date.month == lastM && e.date.year == lastY)
-          .toList();
-    }
-
-    final totalIncome = filteredExpenses
-        .where((e) => e.isIncome)
-        .fold(0.0, (s, e) => s + e.amount);
-    final totalExpense = filteredExpenses
-        .where((e) => e.isExpense)
-        .fold(0.0, (s, e) => s + e.amount);
-
     final color = Color(account.color);
 
     return Scaffold(
@@ -79,349 +101,443 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_rounded, size: 20),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AddAccountScreen(account: account),
-              ),
-            ),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AddAccountScreen(account: account),
+                ),
+              );
+              if (mounted) setState(() {});
+            },
           ),
         ],
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            // ── Account Header Card ─────────────────────────────
-            Container(
+        child: FutureBuilder<List<dynamic>>(
+          future: Future.wait([
+            accountProvider.getAccountMetrics(account.id!),
+            accountProvider.getUnifiedTransactions(account.id!),
+          ]),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Center(
+                child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
+              );
+            }
+
+            final metrics = snapshot.data![0] as Map<String, double>;
+            final allItems = snapshot.data![1] as List<AccountTransactionItem>;
+
+            final now = DateTime.now();
+
+            // Filter items by date
+            List<AccountTransactionItem> items = allItems;
+            if (_dateFilter == 'this_month') {
+              items = items
+                  .where((e) => e.date.month == now.month && e.date.year == now.year)
+                  .toList();
+            } else if (_dateFilter == 'last_month') {
+              final lastM = now.month == 1 ? 12 : now.month - 1;
+              final lastY = now.month == 1 ? now.year - 1 : now.year;
+              items = items
+                  .where((e) => e.date.month == lastM && e.date.year == lastY)
+                  .toList();
+            }
+
+            // Filter items by type
+            if (_typeFilter == 'expense') {
+              items = items.where((e) => e.itemType == 'expense').toList();
+            } else if (_typeFilter == 'income') {
+              items = items.where((e) => e.itemType == 'income').toList();
+            } else if (_typeFilter == 'transfer') {
+              items = items
+                  .where((e) => e.itemType == 'transfer_in' || e.itemType == 'transfer_out')
+                  .toList();
+            } else if (_typeFilter == 'loan') {
+              items = items.where((e) => e.itemType == 'loan').toList();
+            }
+
+            // Filter by search query
+            if (_searchQuery.trim().isNotEmpty) {
+              final q = _searchQuery.trim().toLowerCase();
+              items = items.where((e) {
+                final matchTitle = e.title.toLowerCase().contains(q);
+                final matchSub = e.subtitle.toLowerCase().contains(q);
+                final matchNote = (e.note ?? '').toLowerCase().contains(q);
+                return matchTitle || matchSub || matchNote;
+              }).toList();
+            }
+
+            return ListView(
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [color.withOpacity(0.3), const Color(0xFF1E1E2E)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: color.withOpacity(0.4), width: 1),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+              children: [
+                // ── Account Header Card ─────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [color.withOpacity(0.3), const Color(0xFF1E1E2E)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: color.withOpacity(0.4), width: 1),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: color.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Center(
-                          child: Text(account.icon,
-                              style: const TextStyle(fontSize: 24)),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              account.name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
+                      Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                            Text(
-                              '${account.typeDisplayName}${account.accountNumberDisplay.isNotEmpty ? ' · ${account.accountNumberDisplay}' : ''}',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.5),
-                                fontSize: 12,
-                              ),
+                            child: Center(
+                              child: Text(account.icon, style: const TextStyle(fontSize: 24)),
                             ),
-                          ],
-                        ),
-                      ),
-                      if (account.isDefault)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF6C63FF).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Text('Default',
-                              style: TextStyle(
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  account.name,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '${account.typeDisplayName}${account.accountNumberDisplay.isNotEmpty ? ' · ${account.accountNumberDisplay}' : ''}',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.5),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (account.isDefault)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF6C63FF).withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'Default',
+                                style: TextStyle(
                                   color: Color(0xFF6C63FF),
                                   fontSize: 11,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Text('Current Balance',
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.5), fontSize: 12)),
-                  const SizedBox(height: 4),
-                  Text(
-                    settings.formatAmountFull(balance),
-                    style: TextStyle(
-                      color: balance >= 0
-                          ? const Color(0xFF10B981)
-                          : const Color(0xFFFF6B6B),
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
                       Text(
-                        'Opening: ${settings.formatAmount(account.openingBalance)}',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 12),
+                        'Current Balance',
+                        style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
                       ),
-                      if (!account.isActive)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text('Deactivated',
-                              style: TextStyle(
-                                  color: Colors.redAccent, fontSize: 11)),
+                      const SizedBox(height: 4),
+                      Text(
+                        settings.formatAmountFull(balance),
+                        style: TextStyle(
+                          color: balance >= 0 ? const Color(0xFF10B981) : const Color(0xFFFF6B6B),
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Opening: ${settings.formatAmount(account.openingBalance)}',
+                            style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
+                          ),
+                          if (!account.isActive)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'Deactivated',
+                                style: TextStyle(color: Colors.redAccent, fontSize: 11),
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // ── Metrics Row ────────────────────────────────────
-            Row(
-              children: [
-                Expanded(
-                  child: _MetricTile(
-                    label: 'Income',
-                    amount: settings.formatAmount(totalIncome),
-                    color: const Color(0xFF10B981),
-                    icon: Icons.arrow_downward_rounded,
-                  ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _MetricTile(
-                    label: 'Expense',
-                    amount: settings.formatAmount(totalExpense),
-                    color: const Color(0xFFFF6B6B),
-                    icon: Icons.arrow_upward_rounded,
-                  ),
-                ),
-              ],
-            ),
 
-            const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-            // ── Action Buttons ──────────────────────────────────
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            AddTransferScreen(initialFromAccount: account),
+                // ── Metrics Grid ────────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricTile(
+                        label: 'Income',
+                        amount: settings.formatAmount(metrics['income'] ?? 0.0),
+                        color: const Color(0xFF10B981),
+                        icon: Icons.arrow_downward_rounded,
                       ),
                     ),
-                    icon: const Icon(Icons.sync_alt_rounded,
-                        color: Colors.white, size: 18),
-                    label: const Text('Transfer',
-                        style: TextStyle(color: Colors.white)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6C63FF),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _MetricTile(
+                        label: 'Expense',
+                        amount: settings.formatAmount(metrics['expense'] ?? 0.0),
+                        color: const Color(0xFFFF6B6B),
+                        icon: Icons.arrow_upward_rounded,
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                OutlinedButton.icon(
-                  onPressed: () => _toggleDeactive(account, accountProvider),
-                  icon: Icon(
-                    account.isActive
-                        ? Icons.block_rounded
-                        : Icons.check_circle_outline_rounded,
-                    color: account.isActive ? Colors.redAccent : Colors.greenAccent,
-                    size: 18,
-                  ),
-                  label: Text(
-                    account.isActive ? 'Deactivate' : 'Reactivate',
-                    style: TextStyle(
-                      color: account.isActive ? Colors.redAccent : Colors.greenAccent,
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(
-                      color: account.isActive
-                          ? Colors.redAccent.withOpacity(0.3)
-                          : Colors.greenAccent.withOpacity(0.3),
-                    ),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // ── Transactions Header & Date Filter ───────────────
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Account Transactions',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'all', label: Text('All')),
-                    ButtonSegment(value: 'this_month', label: Text('This M')),
-                    ButtonSegment(value: 'last_month', label: Text('Last M')),
                   ],
-                  selected: {_dateFilter},
-                  onSelectionChanged: (val) =>
-                      setState(() => _dateFilter = val.first),
-                  style: SegmentedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1E1E2E),
-                    selectedBackgroundColor: const Color(0xFF6C63FF),
-                    selectedForegroundColor: Colors.white,
-                    foregroundColor: Colors.white54,
-                    textStyle: const TextStyle(fontSize: 11),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // ── Transaction List ────────────────────────────────
-            filteredExpenses.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Text(
-                        'No transactions for this account',
-                        style: TextStyle(color: Colors.white.withOpacity(0.4)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricTile(
+                        label: 'Transfers In',
+                        amount: settings.formatAmount(metrics['transfersIn'] ?? 0.0),
+                        color: const Color(0xFF06B6D4),
+                        icon: Icons.south_west_rounded,
                       ),
                     ),
-                  )
-                : Column(
-                    children: filteredExpenses.map((exp) {
-                      final cat = expenseProvider.getCategoryById(exp.categoryId);
-                      final isExp = exp.isExpense;
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E1E2E),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                              color: Colors.white.withOpacity(0.06)),
-                        ),
-                        child: Row(
-                          children: [
-                            Text(cat?.icon ?? '📦',
-                                style: const TextStyle(fontSize: 20)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(exp.title,
-                                      style: const TextStyle(
-                                          color: Colors.white, fontSize: 14)),
-                                  Text(
-                                    DateFormat('MMM d, yyyy').format(exp.date),
-                                    style: TextStyle(
-                                        color: Colors.white.withOpacity(0.4),
-                                        fontSize: 11),
-                                  ),
-                                ],
-                              ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _MetricTile(
+                        label: 'Transfers Out',
+                        amount: settings.formatAmount(metrics['transfersOut'] ?? 0.0),
+                        color: const Color(0xFFF59E0B),
+                        icon: Icons.north_east_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Actions ─────────────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => AddTransferScreen(initialFromAccount: account),
                             ),
-                            Text(
-                              '${isExp ? '-' : '+'}${settings.formatAmount(exp.amount)}',
-                              style: TextStyle(
-                                color: isExp
-                                    ? const Color(0xFFFF6B6B)
-                                    : const Color(0xFF10B981),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
+                          );
+                          if (mounted) setState(() {});
+                        },
+                        icon: const Icon(Icons.sync_alt_rounded, color: Colors.white, size: 18),
+                        label: const Text('Transfer', style: TextStyle(color: Colors.white)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6C63FF),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
-                      );
-                    }).toList(),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => _toggleDeactive(account, accountProvider),
+                      icon: Icon(
+                        account.isActive ? Icons.block_rounded : Icons.check_circle_outline_rounded,
+                        color: account.isActive ? Colors.redAccent : Colors.greenAccent,
+                        size: 18,
+                      ),
+                      label: Text(
+                        account.isActive ? 'Deactivate' : 'Reactivate',
+                        style: TextStyle(
+                          color: account.isActive ? Colors.redAccent : Colors.greenAccent,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: account.isActive
+                              ? Colors.redAccent.withOpacity(0.3)
+                              : Colors.greenAccent.withOpacity(0.3),
+                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // ── Search Bar ─────────────────────────
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E1E2E),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withOpacity(0.06)),
                   ),
-          ],
+                  child: TextField(
+                    controller: _searchCtrl,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                    decoration: InputDecoration(
+                      hintText: 'Search transactions...',
+                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 14),
+                      prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withOpacity(0.4), size: 20),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear_rounded, color: Colors.white54, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Type Filter Chips ────────
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _FilterChip(
+                        label: 'All',
+                        selected: _typeFilter == 'all',
+                        onTap: () => setState(() => _typeFilter = 'all'),
+                      ),
+                      _FilterChip(
+                        label: 'Expenses',
+                        selected: _typeFilter == 'expense',
+                        onTap: () => setState(() => _typeFilter = 'expense'),
+                      ),
+                      _FilterChip(
+                        label: 'Income',
+                        selected: _typeFilter == 'income',
+                        onTap: () => setState(() => _typeFilter = 'income'),
+                      ),
+                      _FilterChip(
+                        label: 'Transfers',
+                        selected: _typeFilter == 'transfer',
+                        onTap: () => setState(() => _typeFilter = 'transfer'),
+                      ),
+                      _FilterChip(
+                        label: 'Loans',
+                        selected: _typeFilter == 'loan',
+                        onTap: () => setState(() => _typeFilter = 'loan'),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'History (${items.length})',
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                    ),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'all', label: Text('All')),
+                        ButtonSegment(value: 'this_month', label: Text('This M')),
+                        ButtonSegment(value: 'last_month', label: Text('Last M')),
+                      ],
+                      selected: {_dateFilter},
+                      onSelectionChanged: (val) => setState(() => _dateFilter = val.first),
+                      style: SegmentedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1E1E2E),
+                        selectedBackgroundColor: const Color(0xFF6C63FF),
+                        selectedForegroundColor: Colors.white,
+                        foregroundColor: Colors.white54,
+                        textStyle: const TextStyle(fontSize: 11),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Transaction List ────────────────────────────────
+                items.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Text(
+                            'No matching transactions',
+                            style: TextStyle(color: Colors.white.withOpacity(0.4)),
+                          ),
+                        ),
+                      )
+                    : Column(
+                        children: items.map((item) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E1E2E),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white.withOpacity(0.06)),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(item.icon, style: const TextStyle(fontSize: 20)),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.title,
+                                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                                      ),
+                                      Text(
+                                        '${item.subtitle} · ${DateFormat('MMM d, yyyy').format(item.date)}',
+                                        style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  '${item.isPositive ? '+' : '-'}${settings.formatAmount(item.amount)}',
+                                  style: TextStyle(
+                                    color: item.isPositive ? const Color(0xFF10B981) : const Color(0xFFFF6B6B),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+              ],
+            );
+          },
         ),
       ),
     );
-  }
-
-  Future<void> _toggleDeactive(
-      Account account, AccountProvider provider) async {
-    if (account.isActive) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          backgroundColor: const Color(0xFF1E1E2E),
-          title: const Text('Deactivate Account?',
-              style: TextStyle(color: Colors.white)),
-          content: const Text(
-            'Deactivating an account hides it from new transaction pickers while preserving historical transactions.',
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent),
-              child: const Text('Deactivate',
-                  style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
-      if (confirm == true) {
-        await provider.deactivateAccount(account.id!);
-      }
-    } else {
-      await provider.reactivateAccount(account.id!);
-    }
   }
 }
 
@@ -441,30 +557,73 @@ class _MetricTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E2E),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
       child: Row(
         children: [
           Icon(icon, color: color, size: 18),
           const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.5), fontSize: 10)),
-              Text(amount,
-                  style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 10)),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    amount,
+                    style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF6C63FF).withOpacity(0.25) : const Color(0xFF1E1E2E),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? const Color(0xFF6C63FF) : Colors.white.withOpacity(0.08),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? const Color(0xFF6C63FF) : Colors.white60,
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -190,7 +190,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   await context
                       .read<ExpenseProvider>()
                       .deleteExpense(widget.expense!.id!);
-                  Navigator.pop(context);
+                  if (mounted) {
+                    await context.read<AccountProvider>().loadAccounts();
+                  }
+                  if (mounted) Navigator.pop(context);
                 }
               },
             ),

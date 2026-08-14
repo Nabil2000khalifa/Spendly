@@ -282,8 +282,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           return ExpenseCard(
                             expense: expense,
                             onTap: () => _editExpense(context, expense),
-                            onDelete: () =>
-                                provider.deleteExpense(expense.id!),
+                            onDelete: () async {
+                              await provider.deleteExpense(expense.id!);
+                              if (context.mounted) {
+                                await context.read<AccountProvider>().loadAccounts();
+                              }
+                            },
                           );
                         },
                         childCount: provider.expenses.length,
@@ -309,7 +313,10 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => AddExpenseScreen(initialType: type),
       ),
     );
-    if (mounted) context.read<ExpenseProvider>().loadExpenses();
+    if (mounted) {
+      context.read<ExpenseProvider>().loadExpenses();
+      context.read<AccountProvider>().loadAccounts();
+    }
   }
 
   Future<void> _editExpense(BuildContext context, Expense expense) async {
@@ -319,7 +326,10 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => AddExpenseScreen(expense: expense),
       ),
     );
-    if (mounted) context.read<ExpenseProvider>().loadExpenses();
+    if (mounted) {
+      context.read<ExpenseProvider>().loadExpenses();
+      context.read<AccountProvider>().loadAccounts();
+    }
   }
 }
 

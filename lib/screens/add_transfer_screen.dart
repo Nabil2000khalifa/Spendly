@@ -339,6 +339,13 @@ class _AddTransferScreenState extends State<AddTransferScreen> {
     }
 
     final amt = double.parse(_amountCtrl.text.trim());
+    if (amt <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Transfer amount must be greater than zero')),
+      );
+      return;
+    }
+
     final note = _noteCtrl.text.trim();
 
     final transfer = AccountTransfer(
