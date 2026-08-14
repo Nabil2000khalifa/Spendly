@@ -94,15 +94,27 @@ class AccountsScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    settings.formatAmountFull(totalBalance),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
+                  if (accountProvider.isMultiCurrency) ...[
+                    ...accountProvider.balancesByCurrency.entries.map((e) => Text(
+                          '${e.key} ${settings.formatAmountFull(e.value).replaceAll(settings.currencySymbol, '')}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.5,
+                          ),
+                        )),
+                  ] else ...[
+                    Text(
+                      settings.formatAmountFull(totalBalance),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.5,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

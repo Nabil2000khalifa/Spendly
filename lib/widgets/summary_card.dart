@@ -79,6 +79,7 @@ class BalanceCard extends StatelessWidget {
   final String income;
   final String expense;
   final String currencyCode;
+  final List<String>? multiCurrencyBalances;
 
   const BalanceCard({
     super.key,
@@ -86,6 +87,7 @@ class BalanceCard extends StatelessWidget {
     required this.income,
     required this.expense,
     required this.currencyCode,
+    this.multiCurrencyBalances,
   });
 
   @override
@@ -141,15 +143,27 @@ class BalanceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            balance,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 34,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
+          if (multiCurrencyBalances != null && multiCurrencyBalances!.isNotEmpty) ...[
+            ...multiCurrencyBalances!.map((b) => Text(
+                  b,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: -0.5,
+                  ),
+                )),
+          ] else ...[
+            Text(
+              balance,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 34,
+                fontWeight: FontWeight.bold,
+                letterSpacing: -0.5,
+              ),
             ),
-          ),
+          ],
           const SizedBox(height: 20),
           Row(
             children: [

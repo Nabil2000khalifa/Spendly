@@ -338,6 +338,13 @@ class _AddTransferScreenState extends State<AddTransferScreen> {
       return;
     }
 
+    if (_fromAccount!.currency != _toAccount!.currency) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cannot transfer between different currencies (${_fromAccount!.currency} to ${_toAccount!.currency})')),
+      );
+      return;
+    }
+
     final amt = double.parse(_amountCtrl.text.trim());
     if (amt <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -351,7 +358,7 @@ class _AddTransferScreenState extends State<AddTransferScreen> {
     final transfer = AccountTransfer(
       fromAccountId: _fromAccount!.id!,
       toAccountId: _toAccount!.id!,
-      amount: amt,
+      amountPaise: (amt * 100).round(),
       date: _date,
       note: note.isNotEmpty ? note : null,
       createdAt: DateTime.now(),

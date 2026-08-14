@@ -221,7 +221,7 @@ class _BudgetScreenState extends State<BudgetScreen> {
                   await provider.setBudget(Budget(
                     id: existing?.id,
                     categoryId: category.id!,
-                    amount: amount,
+                    amountPaise: (amount * 100).round(),
                     month: provider.selectedMonth,
                     year: provider.selectedYear,
                   ));

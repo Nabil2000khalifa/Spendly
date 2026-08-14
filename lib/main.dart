@@ -36,7 +36,13 @@ class ExpenseManagerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SettingsProvider()..init()),
         ChangeNotifierProvider(create: (_) => AccountProvider()..init()),
         ChangeNotifierProvider(create: (_) => ExpenseProvider()..init()),
-        ChangeNotifierProvider(create: (_) => LoanProvider()..init()),
+        ChangeNotifierProxyProvider<AccountProvider, LoanProvider>(
+          create: (_) => LoanProvider()..init(),
+          update: (_, accountProvider, loanProvider) {
+            loanProvider!.accountProvider = accountProvider;
+            return loanProvider;
+          },
+        ),
       ],
       child: MaterialApp(
         title: 'Spendly',

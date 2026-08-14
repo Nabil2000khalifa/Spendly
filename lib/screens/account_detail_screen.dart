@@ -22,6 +22,35 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
   String _searchQuery = '';
   final TextEditingController _searchCtrl = TextEditingController();
 
+  Map<String, double>? _metrics;
+  List<AccountTransactionItem>? _transactions;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _reload();
+    });
+  }
+
+  Future<void> _reload() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    
+    final provider = context.read<AccountProvider>();
+    final metrics = await provider.getAccountMetrics(widget.accountId);
+    final txs = await provider.getUnifiedTransactions(widget.accountId);
+    
+    if (mounted) {
+      setState(() {
+        _metrics = metrics;
+        _transactions = txs;
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -52,7 +81,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
               onPressed: () async {
                 Navigator.pop(ctx);
                 await provider.deactivateAccount(account.id!);
-                if (mounted) setState(() {});
+                await _reload();
               },
               child: const Text('Deactivate', style: TextStyle(color: Colors.white)),
             ),
@@ -65,7 +94,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
       } else {
         await provider.reactivateAccount(account.id!);
       }
-      if (mounted) setState(() {});
+      await _reload();
     }
   }
 
@@ -108,31 +137,20 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                   builder: (_) => AddAccountScreen(account: account),
                 ),
               );
-              if (mounted) setState(() {});
+              await _reload();
             },
           ),
         ],
       ),
       body: SafeArea(
-        child: FutureBuilder<List<dynamic>>(
-          future: Future.wait([
-            accountProvider.getAccountMetrics(account.id!),
-            accountProvider.getUnifiedTransactions(account.id!),
-          ]),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData) {
-              return const Center(
-                child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
-              );
-            }
+        child: _isLoading || _metrics == null || _transactions == null
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF6C63FF)))
+            : Builder(
+                builder: (context) {
+                  final now = DateTime.now();
 
-            final metrics = snapshot.data![0] as Map<String, double>;
-            final allItems = snapshot.data![1] as List<AccountTransactionItem>;
-
-            final now = DateTime.now();
-
-            // Filter items by date
-            List<AccountTransactionItem> items = allItems;
+                  // Filter items by date
+                  List<AccountTransactionItem> items = _transactions!;
             if (_dateFilter == 'this_month') {
               items = items
                   .where((e) => e.date.month == now.month && e.date.year == now.year)
@@ -289,7 +307,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                     Expanded(
                       child: _MetricTile(
                         label: 'Income',
-                        amount: settings.formatAmount(metrics['income'] ?? 0.0),
+                        amount: settings.formatAmount(_metrics!['income'] ?? 0.0),
                         color: const Color(0xFF10B981),
                         icon: Icons.arrow_downward_rounded,
                       ),
@@ -298,7 +316,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                     Expanded(
                       child: _MetricTile(
                         label: 'Expense',
-                        amount: settings.formatAmount(metrics['expense'] ?? 0.0),
+                        amount: settings.formatAmount(_metrics!['expense'] ?? 0.0),
                         color: const Color(0xFFFF6B6B),
                         icon: Icons.arrow_upward_rounded,
                       ),
@@ -311,7 +329,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                     Expanded(
                       child: _MetricTile(
                         label: 'Transfers In',
-                        amount: settings.formatAmount(metrics['transfersIn'] ?? 0.0),
+                        amount: settings.formatAmount(_metrics!['transfersIn'] ?? 0.0),
                         color: const Color(0xFF06B6D4),
                         icon: Icons.south_west_rounded,
                       ),
@@ -320,13 +338,49 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                     Expanded(
                       child: _MetricTile(
                         label: 'Transfers Out',
-                        amount: settings.formatAmount(metrics['transfersOut'] ?? 0.0),
+                        amount: settings.formatAmount(_metrics!['transfersOut'] ?? 0.0),
                         color: const Color(0xFFF59E0B),
                         icon: Icons.north_east_rounded,
                       ),
                     ),
                   ],
                 ),
+                if ((_metrics!['loansLent'] ?? 0) > 0 || (_metrics!['loansBorrowed'] ?? 0) > 0 || (_metrics!['loanRepayments'] ?? 0) > 0) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if ((_metrics!['loansLent'] ?? 0) > 0)
+                        Expanded(
+                          child: _MetricTile(
+                            label: 'Loans Lent',
+                            amount: settings.formatAmount(_metrics!['loansLent'] ?? 0.0),
+                            color: const Color(0xFFE84393), // Pink-ish
+                            icon: Icons.upload_rounded,
+                          ),
+                        ),
+                      if ((_metrics!['loansLent'] ?? 0) > 0) const SizedBox(width: 8),
+                      if ((_metrics!['loansBorrowed'] ?? 0) > 0)
+                        Expanded(
+                          child: _MetricTile(
+                            label: 'Loans Borrowed',
+                            amount: settings.formatAmount(_metrics!['loansBorrowed'] ?? 0.0),
+                            color: const Color(0xFF6C5CE7), // Purple-ish
+                            icon: Icons.download_rounded,
+                          ),
+                        ),
+                      if ((_metrics!['loansBorrowed'] ?? 0) > 0) const SizedBox(width: 8),
+                      if ((_metrics!['loanRepayments'] ?? 0) > 0)
+                        Expanded(
+                          child: _MetricTile(
+                            label: 'Repayments',
+                            amount: settings.formatAmount(_metrics!['loanRepayments'] ?? 0.0),
+                            color: const Color(0xFF00B894), // Teal-ish
+                            icon: Icons.autorenew_rounded,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
 
                 const SizedBox(height: 16),
 
@@ -342,7 +396,7 @@ class _AccountDetailScreenState extends State<AccountDetailScreen> {
                               builder: (_) => AddTransferScreen(initialFromAccount: account),
                             ),
                           );
-                          if (mounted) setState(() {});
+                          await _reload();
                         },
                         icon: const Icon(Icons.sync_alt_rounded, color: Colors.white, size: 18),
                         label: const Text('Transfer', style: TextStyle(color: Colors.white)),

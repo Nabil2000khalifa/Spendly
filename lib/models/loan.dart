@@ -223,7 +223,7 @@ class LoanWithDetails {
       case LoanStatus.cancelled:
         return const Color(0xFF6B7280);
       default:
-        return isDueSoon ? const Color(0xFFF59E0B) : const Color(0xFFF59E0B);
+        return isDueSoon ? const Color(0xFFF59E0B) : const Color(0xFF6C63FF);
     }
   }
 

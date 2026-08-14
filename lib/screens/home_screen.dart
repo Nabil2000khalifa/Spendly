@@ -81,6 +81,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   income: settings.formatAmount(provider.totalIncome),
                   expense: settings.formatAmount(provider.totalExpenses),
                   currencyCode: settings.currency,
+                  multiCurrencyBalances: accountProvider.isMultiCurrency
+                      ? accountProvider.balancesByCurrency.entries
+                          .map((e) => '${e.key} ${settings.formatAmountFull(e.value).replaceAll(settings.currencySymbol, '')}')
+                          .toList()
+                      : null,
                 ),
               ),
             ),

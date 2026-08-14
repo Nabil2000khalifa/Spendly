@@ -117,10 +117,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     final settings = context.read<SettingsProvider>();
     final accountProvider = context.read<AccountProvider>();
 
+    final amountVal = double.parse(_amountCtrl.text.trim());
+
     final expense = Expense(
       id: widget.expense?.id,
       title: _titleCtrl.text.trim(),
-      amount: double.parse(_amountCtrl.text.trim()),
+      amountPaise: (amountVal * 100).round(),
       categoryId: _selectedCategory!.id!,
       accountId: _selectedAccount?.id ?? accountProvider.defaultAccount?.id,
       date: _selectedDate,

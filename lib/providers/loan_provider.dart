@@ -3,9 +3,20 @@ import '../db/database_helper.dart';
 import '../models/person.dart';
 import '../models/loan.dart';
 import '../models/loan_ledger_entry.dart';
+import '../providers/account_provider.dart';
 
 class LoanProvider extends ChangeNotifier {
   final DatabaseHelper _db = DatabaseHelper();
+  AccountProvider? _accountProvider;
+
+  set accountProvider(AccountProvider? value) {
+    _accountProvider = value;
+  }
+
+  /// Refreshes account balances after any loan mutation that moves money.
+  Future<void> _refreshAccounts() async {
+    await _accountProvider?.loadAccounts();
+  }
 
   List<Person> _persons = [];
   List<LoanWithDetails> _loans = [];
@@ -243,6 +254,7 @@ class LoanProvider extends ChangeNotifier {
     }
 
     await loadLoans();
+    await _refreshAccounts();
   }
 
   double _computeOneTimeInterest(Loan loan) {
@@ -298,6 +310,7 @@ class LoanProvider extends ChangeNotifier {
     await _db.updateLoanStatus(loanDetails.loan.id!, updated.computedStatus);
 
     await loadLoans();
+    await _refreshAccounts();
   }
 
   // ─── Add Interest / Adjustment ────────────────────────────────────────────
@@ -320,6 +333,7 @@ class LoanProvider extends ChangeNotifier {
 
     await _db.updateLoanStatus(loanId, LoanStatus.active);
     await loadLoans();
+    await _refreshAccounts();
   }
 
   Future<void> addAdjustmentEntry({
@@ -338,6 +352,7 @@ class LoanProvider extends ChangeNotifier {
       createdAt: DateTime.now(),
     ));
     await loadLoans();
+    await _refreshAccounts();
   }
 
   // ─── Apply Accrued Interest ───────────────────────────────────────────────
@@ -383,6 +398,7 @@ class LoanProvider extends ChangeNotifier {
     ));
     await _db.updateLoanStatus(loanId, LoanStatus.cancelled);
     await loadLoans();
+    await _refreshAccounts();
   }
 
   // ─── Export ───────────────────────────────────────────────────────────────

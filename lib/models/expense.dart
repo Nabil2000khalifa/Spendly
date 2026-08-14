@@ -1,7 +1,7 @@
 class Expense {
   final int? id;
   final String title;
-  final double amount;
+  final int amountPaise;
   final int categoryId;
   final int? accountId;
   final DateTime date;
@@ -12,7 +12,7 @@ class Expense {
   const Expense({
     this.id,
     required this.title,
-    required this.amount,
+    required this.amountPaise,
     required this.categoryId,
     this.accountId,
     required this.date,
@@ -23,12 +23,14 @@ class Expense {
 
   bool get isExpense => type == 'expense';
   bool get isIncome => type == 'income';
+  
+  double get amount => amountPaise / 100.0;
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'title': title,
-      'amount': amount,
+      'amount_paise': amountPaise,
       'category_id': categoryId,
       'account_id': accountId,
       'date': date.toIso8601String(),
@@ -42,7 +44,7 @@ class Expense {
     return Expense(
       id: map['id'] as int?,
       title: map['title'] as String,
-      amount: (map['amount'] as num).toDouble(),
+      amountPaise: map['amount_paise'] as int,
       categoryId: map['category_id'] as int,
       accountId: map['account_id'] as int?,
       date: DateTime.parse(map['date'] as String),
@@ -55,7 +57,7 @@ class Expense {
   Expense copyWith({
     int? id,
     String? title,
-    double? amount,
+    int? amountPaise,
     int? categoryId,
     int? accountId,
     DateTime? date,
@@ -66,7 +68,7 @@ class Expense {
     return Expense(
       id: id ?? this.id,
       title: title ?? this.title,
-      amount: amount ?? this.amount,
+      amountPaise: amountPaise ?? this.amountPaise,
       categoryId: categoryId ?? this.categoryId,
       accountId: accountId ?? this.accountId,
       date: date ?? this.date,

@@ -4,7 +4,7 @@ class Account {
   final String type; // 'bank' | 'cash' | 'wallet' | 'credit_card' | 'other'
   final String? institutionName;
   final String? accountNumberLast4;
-  final double openingBalance;
+  final int openingBalancePaise;
   final String currency;
   final String icon;
   final int color;
@@ -19,7 +19,7 @@ class Account {
     required this.type,
     this.institutionName,
     this.accountNumberLast4,
-    this.openingBalance = 0.0,
+    this.openingBalancePaise = 0,
     required this.currency,
     this.icon = '🏦',
     this.color = 0xFF6C63FF,
@@ -81,6 +81,8 @@ class Account {
       accountNumberLast4 != null && accountNumberLast4!.isNotEmpty
           ? '•••• $accountNumberLast4'
           : '';
+          
+  double get openingBalance => openingBalancePaise / 100.0;
 
   Map<String, dynamic> toMap() {
     return {
@@ -89,7 +91,7 @@ class Account {
       'type': type,
       'institution_name': institutionName,
       'account_number_last4': accountNumberLast4,
-      'opening_balance': openingBalance,
+      'opening_balance_paise': openingBalancePaise,
       'currency': currency,
       'icon': icon,
       'color': color,
@@ -107,7 +109,7 @@ class Account {
       type: map['type'] as String,
       institutionName: map['institution_name'] as String?,
       accountNumberLast4: map['account_number_last4'] as String?,
-      openingBalance: (map['opening_balance'] as num).toDouble(),
+      openingBalancePaise: map['opening_balance_paise'] as int? ?? ((map['opening_balance'] as num?)?.toDouble() ?? 0.0 * 100).round(), // fallback for old data during migration if ever needed
       currency: map['currency'] as String,
       icon: (map['icon'] as String?) ?? defaultIcon(map['type'] as String),
       color: map['color'] as int? ?? 0xFF6C63FF,
@@ -124,7 +126,7 @@ class Account {
     String? type,
     String? institutionName,
     String? accountNumberLast4,
-    double? openingBalance,
+    int? openingBalancePaise,
     String? currency,
     String? icon,
     int? color,
@@ -139,7 +141,7 @@ class Account {
       type: type ?? this.type,
       institutionName: institutionName ?? this.institutionName,
       accountNumberLast4: accountNumberLast4 ?? this.accountNumberLast4,
-      openingBalance: openingBalance ?? this.openingBalance,
+      openingBalancePaise: openingBalancePaise ?? this.openingBalancePaise,
       currency: currency ?? this.currency,
       icon: icon ?? this.icon,
       color: color ?? this.color,

@@ -27,7 +27,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -58,6 +58,96 @@ class DatabaseHelper {
       await db.execute('UPDATE loans SET account_id = ? WHERE account_id IS NULL', [primaryId]);
       await db.execute('UPDATE loan_ledger SET account_id = ? WHERE account_id IS NULL', [primaryId]);
     }
+    if (oldVersion < 4) {
+      await db.transaction((txn) async {
+        // --- Migrate expenses ---
+        await txn.execute('''
+          CREATE TABLE expenses_v4 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            amount_paise INTEGER NOT NULL,
+            category_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            note TEXT,
+            type TEXT NOT NULL DEFAULT 'expense',
+            currency TEXT NOT NULL DEFAULT 'USD',
+            account_id INTEGER REFERENCES accounts(id),
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+          )
+        ''');
+        await txn.execute('''
+          INSERT INTO expenses_v4 (id, title, amount_paise, category_id, date, note, type, currency, account_id)
+          SELECT id, title, CAST(ROUND(amount * 100) AS INTEGER), category_id, date, note, type, currency, account_id FROM expenses
+        ''');
+        await txn.execute('DROP TABLE expenses');
+        await txn.execute('ALTER TABLE expenses_v4 RENAME TO expenses');
+
+        // --- Migrate budgets ---
+        await txn.execute('''
+          CREATE TABLE budgets_v4 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER NOT NULL,
+            amount_paise INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            year INTEGER NOT NULL,
+            UNIQUE(category_id, month, year),
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+          )
+        ''');
+        await txn.execute('''
+          INSERT INTO budgets_v4 (id, category_id, amount_paise, month, year)
+          SELECT id, category_id, CAST(ROUND(amount * 100) AS INTEGER), month, year FROM budgets
+        ''');
+        await txn.execute('DROP TABLE budgets');
+        await txn.execute('ALTER TABLE budgets_v4 RENAME TO budgets');
+
+        // --- Migrate accounts ---
+        await txn.execute('''
+          CREATE TABLE accounts_v4 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            institution_name TEXT,
+            account_number_last4 TEXT,
+            opening_balance_paise INTEGER NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            icon TEXT NOT NULL DEFAULT '🏦',
+            color INTEGER NOT NULL DEFAULT 4285326335,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          )
+        ''');
+        await txn.execute('''
+          INSERT INTO accounts_v4 (id, name, type, institution_name, account_number_last4, opening_balance_paise, currency, icon, color, is_active, is_default, created_at, updated_at)
+          SELECT id, name, type, institution_name, account_number_last4, CAST(ROUND(opening_balance * 100) AS INTEGER), currency, icon, color, is_active, is_default, created_at, updated_at FROM accounts
+        ''');
+        await txn.execute('DROP TABLE accounts');
+        await txn.execute('ALTER TABLE accounts_v4 RENAME TO accounts');
+
+        // --- Migrate transfers ---
+        await txn.execute('''
+          CREATE TABLE transfers_v4 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_account_id INTEGER NOT NULL,
+            to_account_id INTEGER NOT NULL,
+            amount_paise INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (from_account_id) REFERENCES accounts(id),
+            FOREIGN KEY (to_account_id) REFERENCES accounts(id)
+          )
+        ''');
+        await txn.execute('''
+          INSERT INTO transfers_v4 (id, from_account_id, to_account_id, amount_paise, date, note, created_at)
+          SELECT id, from_account_id, to_account_id, CAST(ROUND(amount * 100) AS INTEGER), date, note, created_at FROM transfers
+        ''');
+        await txn.execute('DROP TABLE transfers');
+        await txn.execute('ALTER TABLE transfers_v4 RENAME TO transfers');
+      });
+    }
   }
 
   // ─── Expense Tables (unchanged from v1) ───────────────────────────────────
@@ -76,12 +166,13 @@ class DatabaseHelper {
       CREATE TABLE expenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
-        amount REAL NOT NULL,
+        amount_paise INTEGER NOT NULL,
         category_id INTEGER NOT NULL,
         date TEXT NOT NULL,
         note TEXT,
         type TEXT NOT NULL DEFAULT 'expense',
         currency TEXT NOT NULL DEFAULT 'USD',
+        account_id INTEGER REFERENCES accounts(id),
         FOREIGN KEY (category_id) REFERENCES categories(id)
       )
     ''');
@@ -90,7 +181,7 @@ class DatabaseHelper {
       CREATE TABLE budgets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category_id INTEGER NOT NULL,
-        amount REAL NOT NULL,
+        amount_paise INTEGER NOT NULL,
         month INTEGER NOT NULL,
         year INTEGER NOT NULL,
         UNIQUE(category_id, month, year),
@@ -133,6 +224,7 @@ class DatabaseHelper {
         notes TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        account_id INTEGER REFERENCES accounts(id),
         FOREIGN KEY (person_id) REFERENCES persons(id)
       )
     ''');
@@ -164,7 +256,7 @@ class DatabaseHelper {
         type TEXT NOT NULL,
         institution_name TEXT,
         account_number_last4 TEXT,
-        opening_balance REAL NOT NULL DEFAULT 0.0,
+        opening_balance_paise INTEGER NOT NULL DEFAULT 0,
         currency TEXT NOT NULL DEFAULT 'USD',
         icon TEXT NOT NULL DEFAULT '🏦',
         color INTEGER NOT NULL DEFAULT 4285326335,
@@ -180,7 +272,7 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         from_account_id INTEGER NOT NULL,
         to_account_id INTEGER NOT NULL,
-        amount REAL NOT NULL,
+        amount_paise INTEGER NOT NULL,
         date TEXT NOT NULL,
         note TEXT,
         created_at TEXT NOT NULL,
@@ -197,7 +289,7 @@ class DatabaseHelper {
       'type': 'bank',
       'institution_name': null,
       'account_number_last4': null,
-      'opening_balance': 0.0,
+      'opening_balance_paise': 0,
       'currency': 'USD',
       'icon': '🏦',
       'color': 0xFF6C63FF,
@@ -321,7 +413,7 @@ class DatabaseHelper {
     final end = DateTime(year, month + 1, 1).toIso8601String();
 
     String query = '''
-      SELECT category_id, SUM(amount) as total
+      SELECT category_id, SUM(amount_paise) as total_paise
       FROM expenses
       WHERE date >= ? AND date < ? AND type = 'expense'
     ''';
@@ -338,7 +430,7 @@ class DatabaseHelper {
 
     return {
       for (final row in result)
-        (row['category_id'] as int): (row['total'] as num).toDouble()
+        (row['category_id'] as int): (row['total_paise'] as num).toDouble() / 100.0
     };
   }
 
@@ -354,8 +446,8 @@ class DatabaseHelper {
 
       String query = '''
         SELECT 
-          SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expense,
-          SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as total_income
+          SUM(CASE WHEN type = 'expense' THEN amount_paise ELSE 0 END) as total_expense_paise,
+          SUM(CASE WHEN type = 'income' THEN amount_paise ELSE 0 END) as total_income_paise
         FROM expenses
         WHERE date >= ? AND date < ?
       ''';
@@ -367,12 +459,11 @@ class DatabaseHelper {
       }
 
       final row = await db.rawQuery(query, args);
-      final first = row.first;
       results.add({
         'month': date.month,
         'year': date.year,
-        'expense': (first['total_expense'] as num?)?.toDouble() ?? 0.0,
-        'income': (first['total_income'] as num?)?.toDouble() ?? 0.0,
+        'expense': (row.first['total_expense_paise'] as num?)?.toDouble() != null ? (row.first['total_expense_paise'] as num).toDouble() / 100.0 : 0.0,
+        'income': (row.first['total_income_paise'] as num?)?.toDouble() != null ? (row.first['total_income_paise'] as num).toDouble() / 100.0 : 0.0,
       });
     }
 
@@ -593,27 +684,27 @@ class DatabaseHelper {
     // Expenses & Income
     final expRes = await db.rawQuery('''
       SELECT 
-        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense
+        SUM(CASE WHEN type = 'income' THEN amount_paise ELSE 0 END) as income_paise,
+        SUM(CASE WHEN type = 'expense' THEN amount_paise ELSE 0 END) as expense_paise
       FROM expenses
       WHERE account_id = ?
     ''', [accountId]);
     if (expRes.isNotEmpty) {
-      final inc = (expRes.first['income'] as num?)?.toDouble() ?? 0.0;
-      final exp = (expRes.first['expense'] as num?)?.toDouble() ?? 0.0;
+      final inc = ((expRes.first['income_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
+      final exp = ((expRes.first['expense_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
       balance += inc - exp;
     }
 
     // Transfers In (+)
-    final trIn = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE to_account_id = ?', [accountId]);
+    final trIn = await db.rawQuery('SELECT SUM(amount_paise) as total_paise FROM transfers WHERE to_account_id = ?', [accountId]);
     if (trIn.isNotEmpty) {
-      balance += (trIn.first['total'] as num?)?.toDouble() ?? 0.0;
+      balance += ((trIn.first['total_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
     }
 
     // Transfers Out (-)
-    final trOut = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE from_account_id = ?', [accountId]);
+    final trOut = await db.rawQuery('SELECT SUM(amount_paise) as total_paise FROM transfers WHERE from_account_id = ?', [accountId]);
     if (trOut.isNotEmpty) {
-      balance -= (trOut.first['total'] as num?)?.toDouble() ?? 0.0;
+      balance -= ((trOut.first['total_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
     }
 
     // Loans Lent principal (-) where loan account_id = accountId
@@ -690,25 +781,49 @@ class DatabaseHelper {
     final db = await database;
     final expRes = await db.rawQuery('''
       SELECT 
-        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense
+        SUM(CASE WHEN type = 'income' THEN amount_paise ELSE 0 END) as income_paise,
+        SUM(CASE WHEN type = 'expense' THEN amount_paise ELSE 0 END) as expense_paise
       FROM expenses
       WHERE account_id = ?
     ''', [accountId]);
-    final totalIncome = (expRes.first['income'] as num?)?.toDouble() ?? 0.0;
-    final totalExpense = (expRes.first['expense'] as num?)?.toDouble() ?? 0.0;
+    final totalIncome = ((expRes.first['income_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
+    final totalExpense = ((expRes.first['expense_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
 
-    final trInRes = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE to_account_id = ?', [accountId]);
-    final transfersIn = (trInRes.first['total'] as num?)?.toDouble() ?? 0.0;
+    final trInRes = await db.rawQuery('SELECT SUM(amount_paise) as total_paise FROM transfers WHERE to_account_id = ?', [accountId]);
+    final transfersIn = ((trInRes.first['total_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
 
-    final trOutRes = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE from_account_id = ?', [accountId]);
-    final transfersOut = (trOutRes.first['total'] as num?)?.toDouble() ?? 0.0;
+    final trOutRes = await db.rawQuery('SELECT SUM(amount_paise) as total_paise FROM transfers WHERE from_account_id = ?', [accountId]);
+    final transfersOut = ((trOutRes.first['total_paise'] as num?)?.toDouble() ?? 0.0) / 100.0;
+
+    final lentRes = await db.rawQuery('''
+      SELECT SUM(principal_paise) as total 
+      FROM loans 
+      WHERE type = 'lent' AND status != 'cancelled' AND account_id = ?
+    ''', [accountId]);
+    final loansLent = ((lentRes.first['total'] as num?)?.toDouble() ?? 0.0) / 100.0;
+
+    final borRes = await db.rawQuery('''
+      SELECT SUM(principal_paise) as total 
+      FROM loans 
+      WHERE type = 'borrowed' AND status != 'cancelled' AND account_id = ?
+    ''', [accountId]);
+    final loansBorrowed = ((borRes.first['total'] as num?)?.toDouble() ?? 0.0) / 100.0;
+
+    final repRes = await db.rawQuery('''
+      SELECT SUM(amount_paise) as total 
+      FROM loan_ledger 
+      WHERE entry_type = 'payment' AND account_id = ?
+    ''', [accountId]);
+    final loanRepayments = ((repRes.first['total'] as num?)?.toDouble() ?? 0.0) / 100.0;
 
     return {
       'income': totalIncome,
       'expense': totalExpense,
       'transfersIn': transfersIn,
       'transfersOut': transfersOut,
+      'loansLent': loansLent,
+      'loansBorrowed': loansBorrowed,
+      'loanRepayments': loanRepayments,
     };
   }
 
@@ -729,7 +844,7 @@ class DatabaseHelper {
         'id': 'exp_${row['id']}',
         'title': row['title'] as String,
         'subtitle': (row['cat_name'] as String?) ?? 'General',
-        'amount': (row['amount'] as num).toDouble(),
+        'amount': ((row['amount_paise'] as num).toDouble() / 100.0),
         'isPositive': !isExp,
         'itemType': isExp ? 'expense' : 'income',
         'date': row['date'] as String,
@@ -750,7 +865,7 @@ class DatabaseHelper {
         'id': 'tr_out_${row['id']}',
         'title': 'Transfer to ${row['target_name']}',
         'subtitle': 'Transfer Out',
-        'amount': (row['amount'] as num).toDouble(),
+        'amount': ((row['amount_paise'] as num).toDouble() / 100.0),
         'isPositive': false,
         'itemType': 'transfer_out',
         'date': row['date'] as String,
@@ -771,7 +886,7 @@ class DatabaseHelper {
         'id': 'tr_in_${row['id']}',
         'title': 'Transfer from ${row['source_name']}',
         'subtitle': 'Transfer In',
-        'amount': (row['amount'] as num).toDouble(),
+        'amount': ((row['amount_paise'] as num).toDouble() / 100.0),
         'isPositive': true,
         'itemType': 'transfer_in',
         'date': row['date'] as String,
@@ -786,7 +901,7 @@ class DatabaseHelper {
       FROM loan_ledger ll
       JOIN loans l ON ll.loan_id = l.id
       JOIN persons p ON l.person_id = p.id
-      WHERE ll.account_id = ?
+      WHERE ll.account_id = ? AND ll.entry_type IN ('principal', 'payment')
     ''', [accountId]);
     for (final row in loanLedgerMaps) {
       final entryType = row['entry_type'] as String;

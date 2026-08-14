@@ -23,15 +23,26 @@ class AccountProvider extends ChangeNotifier {
 
   Map<int, double> get balances => _balances;
 
-  /// Combined total balance of all active accounts.
-  double get totalBalance {
-    double sum = 0.0;
+  Map<String, double> get balancesByCurrency {
+    final map = <String, double>{};
     for (final acc in activeAccounts) {
       if (acc.id != null) {
-        sum += _balances[acc.id!] ?? 0.0;
+        map[acc.currency] = (map[acc.currency] ?? 0.0) + (_balances[acc.id!] ?? 0.0);
       }
     }
-    return sum;
+    return map;
+  }
+
+  bool get isMultiCurrency => balancesByCurrency.keys.length > 1;
+
+  /// Combined total balance of all active accounts (meaningful only for single currency, returns the total of the default/majority currency or just sum if only one currency)
+  double get totalBalance {
+    final byCurrency = balancesByCurrency;
+    if (byCurrency.isEmpty) return 0.0;
+    
+    // Find the currency of the default account, or just pick the first
+    final defaultCurrency = defaultAccount?.currency ?? byCurrency.keys.first;
+    return byCurrency[defaultCurrency] ?? 0.0;
   }
 
   double getAccountBalance(int accountId) => _balances[accountId] ?? 0.0;
