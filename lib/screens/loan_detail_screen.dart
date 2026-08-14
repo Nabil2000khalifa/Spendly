@@ -27,8 +27,10 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool showLoading = false}) async {
+    if (showLoading && mounted) {
+      setState(() => _loading = true);
+    }
     final ld =
         await context.read<LoanProvider>().getLoanDetails(widget.loanId);
     if (mounted) setState(() { _ld = ld; _loading = false; });
@@ -85,7 +87,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: () => _load(showLoading: true),
         color: const Color(0xFF6C63FF),
         child: CustomScrollView(
           slivers: [
@@ -430,12 +432,11 @@ class _FinancialBreakdown extends StatelessWidget {
                 Text('${(ld.progressPct * 100).toStringAsFixed(1)}% paid',
                     style: TextStyle(
                         color: Colors.white.withOpacity(0.4), fontSize: 11)),
-                if (ld.loan.startDate != null)
-                  Text(
-                    '${ld.loan.dueDate != null ? 'Due: ${DateFormat('MMM d, yyyy').format(ld.loan.dueDate!)}' : 'Started: ${DateFormat('MMM d, yyyy').format(ld.loan.startDate)}'}',
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.4), fontSize: 11),
-                  ),
+                Text(
+                  '${ld.loan.dueDate != null ? 'Due: ${DateFormat('MMM d, yyyy').format(ld.loan.dueDate!)}' : 'Started: ${DateFormat('MMM d, yyyy').format(ld.loan.startDate)}'}',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.4), fontSize: 11),
+                ),
               ],
             ),
           ],

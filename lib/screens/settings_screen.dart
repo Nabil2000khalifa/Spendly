@@ -9,8 +9,9 @@ import 'package:csv/csv.dart';
 import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/loan_provider.dart';
-import '../models/expense.dart';
+import '../widgets/app_logo.dart';
 import 'package:intl/intl.dart';
+import 'accounts_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -40,70 +41,94 @@ class SettingsScreen extends StatelessWidget {
             _SectionTitle(title: 'Currency'),
             const SizedBox(height: 12),
             Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               decoration: BoxDecoration(
                 color: const Color(0xFF1E1E2E),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.white.withOpacity(0.06)),
               ),
-              child: Column(
-                children: SettingsProvider.supportedCurrencies
-                    .asMap()
-                    .entries
-                    .map((entry) {
-                  final i = entry.key;
-                  final cur = entry.value;
-                  final isSelected = settings.currency == cur['code'];
-                  final isLast = i ==
-                      SettingsProvider.supportedCurrencies.length - 1;
-
-                  return Column(
-                    children: [
-                      ListTile(
-                        onTap: () => settings.setCurrency(
-                            cur['code']!, cur['symbol']!),
-                        leading: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? const Color(0xFF6C63FF).withOpacity(0.15)
-                                : Colors.white.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Center(
-                            child: Text(
-                              cur['symbol']!,
-                              style: TextStyle(
-                                color: isSelected
-                                    ? const Color(0xFF6C63FF)
-                                    : Colors.white70,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: settings.currency,
+                  isExpanded: true,
+                  dropdownColor: const Color(0xFF1E1E2E),
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                      color: Color(0xFF6C63FF)),
+                  items: SettingsProvider.supportedCurrencies.map((cur) {
+                    return DropdownMenuItem<String>(
+                      value: cur['code'],
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6C63FF).withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Center(
+                              child: Text(
+                                cur['symbol']!,
+                                style: const TextStyle(
+                                  color: Color(0xFF6C63FF),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        title: Text(cur['name']!,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14)),
-                        subtitle: Text(cur['code']!,
-                            style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 12)),
-                        trailing: isSelected
-                            ? const Icon(Icons.check_circle_rounded,
-                                color: Color(0xFF6C63FF), size: 20)
-                            : null,
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  cur['name']!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  cur['code']!,
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.4),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      if (!isLast)
-                        Divider(
-                          height: 1,
-                          indent: 72,
-                          color: Colors.white.withOpacity(0.06),
-                        ),
-                    ],
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      final found = SettingsProvider.supportedCurrencies
+                          .firstWhere((c) => c['code'] == val);
+                      settings.setCurrency(found['code']!, found['symbol']!);
+                    }
+                  },
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // ── Accounts Section ──────────────────────────────
+            _SectionTitle(title: 'Accounts & Banking'),
+            const SizedBox(height: 12),
+            _SettingsActionCard(
+              icon: Icons.account_balance_wallet_rounded,
+              iconColor: const Color(0xFF6C63FF),
+              title: 'Manage Accounts',
+              subtitle: 'Bank accounts, cash, wallets, transfers, and balances',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AccountsScreen()),
               ),
             ),
 
@@ -156,11 +181,10 @@ class SettingsScreen extends StatelessWidget {
             Center(
               child: Column(
                 children: [
-                  const Text('💰',
-                      style: TextStyle(fontSize: 32)),
+                  const AppLogo(size: 58, showLabel: false),
                   const SizedBox(height: 8),
                   const Text(
-                    'Expense Manager',
+                    'Spendly',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -186,7 +210,6 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _exportCsv(BuildContext context) async {
     try {
       final provider = context.read<ExpenseProvider>();
-      final settings = context.read<SettingsProvider>();
       final expenses = await provider.getAllExpensesForExport();
 
       final rows = [
@@ -322,8 +345,7 @@ class SettingsScreen extends StatelessWidget {
 
       final csv = const ListToCsvConverter().convert(rows);
       final dir = await getTemporaryDirectory();
-      final file = File(
-          '\${dir.path}/loans_\${DateTime.now().millisecondsSinceEpoch}.csv');
+      final file = File('${dir.path}/loans_${DateTime.now().millisecondsSinceEpoch}.csv');
       await file.writeAsString(csv);
 
       await Share.shareXFiles(

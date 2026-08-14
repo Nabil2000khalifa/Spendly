@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../models/loan.dart';
 import '../models/loan_ledger_entry.dart';
+import '../models/account.dart';
 import '../providers/loan_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/account_provider.dart';
 
 class AddPaymentScreen extends StatefulWidget {
   final LoanWithDetails loanDetails;
@@ -19,10 +21,26 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
   final _noteCtrl = TextEditingController();
   String _method = PaymentMethod.cash;
   DateTime _date = DateTime.now();
+  Account? _selectedAccount;
 
   LoanWithDetails get ld => widget.loanDetails;
 
   double get _inputAmount => double.tryParse(_amountCtrl.text) ?? 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_selectedAccount == null) {
+      final accountProvider = context.watch<AccountProvider>();
+      if (ld.loan.accountId != null) {
+        _selectedAccount = accountProvider.getAccountById(ld.loan.accountId);
+      }
+      _selectedAccount ??= accountProvider.defaultAccount ??
+          (accountProvider.activeAccounts.isNotEmpty
+              ? accountProvider.activeAccounts.first
+              : null);
+    }
+  }
 
   /// Simulates interest-first allocation for the preview
   _Allocation _allocate(double payment) {
@@ -308,6 +326,47 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
               );
             }).toList(),
           ),
+          const SizedBox(height: 20),
+
+          // ── Payment Account ─────────────────────────────────
+          Text('Account',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.55), fontSize: 13)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E2E),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<Account>(
+                value: _selectedAccount,
+                isExpanded: true,
+                dropdownColor: const Color(0xFF1E1E2E),
+                style: const TextStyle(color: Colors.white),
+                items: context.watch<AccountProvider>().activeAccounts.map((acc) {
+                  return DropdownMenuItem(
+                    value: acc,
+                    child: Row(
+                      children: [
+                        Text(acc.icon, style: const TextStyle(fontSize: 18)),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(acc.name)),
+                        if (acc.isDefault)
+                          Text(' (Default)',
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.4),
+                                  fontSize: 11)),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => _selectedAccount = val),
+              ),
+            ),
+          ),
 
           const SizedBox(height: 20),
 
@@ -428,8 +487,11 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
           amount: amount,
           method: _method,
           date: _date,
+          accountId: _selectedAccount?.id,
           note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
         );
+
+    await context.read<AccountProvider>().loadAccounts();
 
     if (mounted) Navigator.pop(context, true);
   }

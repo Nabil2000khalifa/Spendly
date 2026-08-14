@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../models/expense.dart';
 import '../models/category.dart';
+import '../models/account.dart';
 import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/account_provider.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   final Expense? expense;
@@ -29,6 +31,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   late String _type;
   DateTime _selectedDate = DateTime.now();
   ExpenseCategory? _selectedCategory;
+  Account? _selectedAccount;
 
   bool get _isEditing => widget.expense != null;
 
@@ -49,6 +52,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final accountProvider = context.watch<AccountProvider>();
+
     if (_isEditing && _selectedCategory == null) {
       final cats = context.read<ExpenseProvider>().categories;
       try {
@@ -58,6 +63,17 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     } else if (_selectedCategory == null) {
       final cats = context.read<ExpenseProvider>().categories;
       if (cats.isNotEmpty) _selectedCategory = cats.first;
+    }
+
+    if (_selectedAccount == null) {
+      if (_isEditing && widget.expense!.accountId != null) {
+        _selectedAccount =
+            accountProvider.getAccountById(widget.expense!.accountId);
+      }
+      _selectedAccount ??= accountProvider.defaultAccount ??
+          (accountProvider.activeAccounts.isNotEmpty
+              ? accountProvider.activeAccounts.first
+              : null);
     }
   }
 
@@ -99,12 +115,14 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     final provider = context.read<ExpenseProvider>();
     final settings = context.read<SettingsProvider>();
+    final accountProvider = context.read<AccountProvider>();
 
     final expense = Expense(
       id: widget.expense?.id,
       title: _titleCtrl.text.trim(),
       amount: double.parse(_amountCtrl.text.trim()),
       categoryId: _selectedCategory!.id!,
+      accountId: _selectedAccount?.id ?? accountProvider.defaultAccount?.id,
       date: _selectedDate,
       note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
       type: _type,
@@ -116,6 +134,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     } else {
       await provider.addExpense(expense);
     }
+
+    await accountProvider.loadAccounts();
 
     if (mounted) Navigator.pop(context);
   }
@@ -250,6 +270,45 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               categories: categories,
               selected: _selectedCategory,
               onSelect: (cat) => setState(() => _selectedCategory = cat),
+            ),
+            const SizedBox(height: 20),
+
+            // ── Account ─────────────────────────────────────
+            _buildLabel('Account'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E2E),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<Account>(
+                  value: _selectedAccount,
+                  isExpanded: true,
+                  dropdownColor: const Color(0xFF1E1E2E),
+                  style: const TextStyle(color: Colors.white),
+                  items: context.watch<AccountProvider>().activeAccounts.map((acc) {
+                    return DropdownMenuItem(
+                      value: acc,
+                      child: Row(
+                        children: [
+                          Text(acc.icon, style: const TextStyle(fontSize: 18)),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(acc.name)),
+                          if (acc.isDefault)
+                            Text(' (Default)',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.4),
+                                    fontSize: 11)),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (val) => setState(() => _selectedAccount = val),
+                ),
+              ),
             ),
             const SizedBox(height: 20),
 

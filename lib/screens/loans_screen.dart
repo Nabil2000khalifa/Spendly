@@ -34,17 +34,19 @@ class _LoansScreenState extends State<LoansScreen>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: _tabs.length, vsync: this);
-    _tabCtrl.addListener(() {
-      if (_tabCtrl.indexIsChanging) return;
-      final t = _tabs[_tabCtrl.index];
-      final provider = context.read<LoanProvider>();
-      provider.setTypeFilter(t.$2);
-      provider.setStatusFilter(t.$3);
-    });
+    _tabCtrl.addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    if (!mounted) return;
+    if (_tabCtrl.indexIsChanging) return;
+    final t = _tabs[_tabCtrl.index];
+    context.read<LoanProvider>().setFilters(t.$2, t.$3);
   }
 
   @override
   void dispose() {
+    _tabCtrl.removeListener(_onTabChanged);
     _tabCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -330,48 +332,58 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('🤝', style: TextStyle(fontSize: 64)),
-            const SizedBox(height: 16),
-            const Text(
-              'No loans yet',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: (constraints.maxHeight - 24).clamp(0.0, double.infinity),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('🤝', style: TextStyle(fontSize: 54)),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'No loans yet',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Track money you lend or borrow from friends and family.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.4),
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: onAdd,
+                    icon: const Icon(Icons.add, color: Colors.white),
+                    label: const Text('Add First Loan',
+                        style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C63FF),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 14),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Track money you lend or borrow from friends and family.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.4),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: onAdd,
-              icon: const Icon(Icons.add, color: Colors.white),
-              label: const Text('Add First Loan',
-                  style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6C63FF),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 24, vertical: 14),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

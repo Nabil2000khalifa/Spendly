@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/account_provider.dart';
 import '../models/expense.dart';
 import '../widgets/expense_card.dart';
 import '../widgets/summary_card.dart';
 import 'add_expense_screen.dart';
+import 'accounts_screen.dart';
+import 'account_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<ExpenseProvider>();
     final settings = context.watch<SettingsProvider>();
+    final accountProvider = context.watch<AccountProvider>();
 
     return Scaffold(
       backgroundColor: const Color(0xFF12121F),
@@ -73,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: BalanceCard(
-                  balance: settings.formatAmountFull(provider.balance),
+                  balance: settings.formatAmountFull(accountProvider.totalBalance),
                   income: settings.formatAmount(provider.totalIncome),
                   expense: settings.formatAmount(provider.totalExpenses),
                   currencyCode: settings.currency,
@@ -81,7 +85,127 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            const SliverToBoxAdapter(child: SizedBox(height: 20)),
+
+            // ── Accounts Summary Section ─────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Accounts',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AccountsScreen(),
+                            ),
+                          ),
+                          child: const Text(
+                            'Manage',
+                            style: TextStyle(
+                              color: Color(0xFF6C63FF),
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 72,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: accountProvider.activeAccounts.length,
+                        itemBuilder: (ctx, idx) {
+                          final acc = accountProvider.activeAccounts[idx];
+                          final bal = accountProvider.getBalance(acc.id!);
+                          final color = Color(acc.color);
+                          return GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    AccountDetailScreen(accountId: acc.id!),
+                              ),
+                            ),
+                            child: Container(
+                              margin: const EdgeInsets.only(right: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E1E2E),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: acc.isDefault
+                                      ? const Color(0xFF6C63FF).withOpacity(0.5)
+                                      : Colors.white.withOpacity(0.08),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: color.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Center(
+                                      child: Text(acc.icon,
+                                          style: const TextStyle(fontSize: 18)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        acc.name,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Text(
+                                        settings.formatAmount(bal),
+                                        style: TextStyle(
+                                          color: bal >= 0
+                                              ? const Color(0xFF10B981)
+                                              : const Color(0xFFFF6B6B),
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SliverToBoxAdapter(child: SizedBox(height: 20)),
 
             // ── Quick Stats Row ─────────────────────────────
             SliverToBoxAdapter(

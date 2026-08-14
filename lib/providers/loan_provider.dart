@@ -61,16 +61,26 @@ class LoanProvider extends ChangeNotifier {
   }
 
   void setTypeFilter(String f) {
+    if (_typeFilter == f) return;
     _typeFilter = f;
     notifyListeners();
   }
 
   void setStatusFilter(String f) {
+    if (_statusFilter == f) return;
     _statusFilter = f;
     notifyListeners();
   }
 
+  void setFilters(String type, String status) {
+    if (_typeFilter == type && _statusFilter == status) return;
+    _typeFilter = type;
+    _statusFilter = status;
+    notifyListeners();
+  }
+
   void setSearch(String q) {
+    if (_searchQuery == q) return;
     _searchQuery = q;
     notifyListeners();
   }
@@ -89,11 +99,12 @@ class LoanProvider extends ChangeNotifier {
 
   Future<void> loadLoans() async {
     final rawLoans = await _db.getLoans();
+    final personMap = {for (final p in _persons) if (p.id != null) p.id!: p};
     final withDetails = <LoanWithDetails>[];
 
     for (final loan in rawLoans) {
       if (loan.isCancelled) continue; // skip cancelled in main list
-      final person = await _db.getPerson(loan.personId);
+      final person = personMap[loan.personId] ?? await _db.getPerson(loan.personId);
       if (person == null) continue;
       final ledger = await _db.getLedgerForLoan(loan.id!);
       final detail = LoanWithDetails(loan: loan, person: person, ledger: ledger);
@@ -200,6 +211,7 @@ class LoanProvider extends ChangeNotifier {
     // Add principal ledger entry
     await _db.insertLedgerEntry(LoanLedgerEntry(
       loanId: id,
+      accountId: loan.accountId,
       entryType: 'principal',
       amountPaise: loan.principalPaise,
       description: loan.isLent
@@ -218,6 +230,7 @@ class LoanProvider extends ChangeNotifier {
         final interestPaise = (interestAmount * 100).round();
         await _db.insertLedgerEntry(LoanLedgerEntry(
           loanId: id,
+          accountId: loan.accountId,
           entryType: 'interest',
           amountPaise: interestPaise,
           description: loan.interestType == 'fixed'
@@ -247,12 +260,8 @@ class LoanProvider extends ChangeNotifier {
   }
 
   Future<LoanWithDetails?> getLoanDetails(int loanId) async {
-    final loan = await _db.getLoan(loanId);
-    if (loan == null) return null;
-    final person = await _db.getPerson(loan.personId);
-    if (person == null) return null;
-    final ledger = await _db.getLedgerForLoan(loanId);
-    return LoanWithDetails(loan: loan, person: person, ledger: ledger);
+    final l = _loans.firstWhere((l) => l.loan.id == loanId);
+    return l;
   }
 
   // ─── Record Payment ───────────────────────────────────────────────────────
@@ -262,6 +271,7 @@ class LoanProvider extends ChangeNotifier {
     required double amount,
     required String method,
     required DateTime date,
+    int? accountId,
     String? note,
   }) async {
     final amtPaise = (amount * 100).round();
@@ -271,6 +281,7 @@ class LoanProvider extends ChangeNotifier {
 
     await _db.insertLedgerEntry(LoanLedgerEntry(
       loanId: loanDetails.loan.id!,
+      accountId: accountId ?? loanDetails.loan.accountId,
       entryType: 'payment',
       amountPaise: amtPaise,
       description: desc,

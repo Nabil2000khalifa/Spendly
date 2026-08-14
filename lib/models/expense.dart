@@ -3,6 +3,7 @@ class Expense {
   final String title;
   final double amount;
   final int categoryId;
+  final int? accountId;
   final DateTime date;
   final String? note;
   final String type; // 'expense' or 'income'
@@ -13,6 +14,7 @@ class Expense {
     required this.title,
     required this.amount,
     required this.categoryId,
+    this.accountId,
     required this.date,
     this.note,
     required this.type,
@@ -28,6 +30,7 @@ class Expense {
       'title': title,
       'amount': amount,
       'category_id': categoryId,
+      'account_id': accountId,
       'date': date.toIso8601String(),
       'note': note,
       'type': type,
@@ -41,6 +44,7 @@ class Expense {
       title: map['title'] as String,
       amount: (map['amount'] as num).toDouble(),
       categoryId: map['category_id'] as int,
+      accountId: map['account_id'] as int?,
       date: DateTime.parse(map['date'] as String),
       note: map['note'] as String?,
       type: map['type'] as String,
@@ -53,6 +57,7 @@ class Expense {
     String? title,
     double? amount,
     int? categoryId,
+    int? accountId,
     DateTime? date,
     String? note,
     String? type,
@@ -63,6 +68,7 @@ class Expense {
       title: title ?? this.title,
       amount: amount ?? this.amount,
       categoryId: categoryId ?? this.categoryId,
+      accountId: accountId ?? this.accountId,
       date: date ?? this.date,
       note: note ?? this.note,
       type: type ?? this.type,

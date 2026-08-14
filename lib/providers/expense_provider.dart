@@ -63,11 +63,17 @@ class ExpenseProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setMonth(int month, int year) {
+  Future<void> setMonth(int month, int year) async {
+    if (_selectedMonth == month && _selectedYear == year) return;
     _selectedMonth = month;
     _selectedYear = year;
-    loadExpenses();
-    loadBudgets();
+    final results = await Future.wait([
+      _db.getExpenses(month: _selectedMonth, year: _selectedYear),
+      _db.getBudgets(month: _selectedMonth, year: _selectedYear),
+    ]);
+    _expenses = results[0] as List<Expense>;
+    _budgets = results[1] as List<Budget>;
+    notifyListeners();
   }
 
   // ─── Expense CRUD ──────────────────────────────────────────────────────────
@@ -130,12 +136,12 @@ class ExpenseProvider extends ChangeNotifier {
 
   // ─── Statistics ────────────────────────────────────────────────────────────
 
-  Future<Map<int, double>> getCategoryBreakdown() async {
-    return await _db.getExpensesByCategory(_selectedMonth, _selectedYear);
+  Future<Map<int, double>> getCategoryBreakdown({int? accountId}) async {
+    return await _db.getExpensesByCategory(_selectedMonth, _selectedYear, accountId: accountId);
   }
 
-  Future<List<Map<String, dynamic>>> getMonthlyTotals() async {
-    return await _db.getMonthlyTotals(6);
+  Future<List<Map<String, dynamic>>> getMonthlyTotals({int? accountId}) async {
+    return await _db.getMonthlyTotals(6, accountId: accountId);
   }
 
   // ─── Export ────────────────────────────────────────────────────────────────

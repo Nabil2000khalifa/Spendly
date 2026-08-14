@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../models/loan.dart';
 import '../models/person.dart';
+import '../models/account.dart';
 import '../providers/loan_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/account_provider.dart';
 
 class AddLoanScreen extends StatefulWidget {
   final Loan? loan; // null = create, non-null = edit
@@ -23,6 +25,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
 
   String _type = 'lent';
   Person? _selectedPerson;
+  Account? _selectedAccount;
   DateTime _startDate = DateTime.now();
   DateTime? _dueDate;
   bool _hasDueDate = false;
@@ -57,9 +60,28 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final accountProvider = context.watch<AccountProvider>();
+
     if (_isEditing && _selectedPerson == null) {
-      _selectedPerson =
-          context.read<LoanProvider>().getPersonById(widget.loan!.personId);
+      final persons = context.read<LoanProvider>().persons;
+      try {
+        _selectedPerson =
+            persons.firstWhere((p) => p.id == widget.loan!.personId);
+      } catch (_) {}
+    } else if (_selectedPerson == null) {
+      final persons = context.read<LoanProvider>().persons;
+      if (persons.isNotEmpty) _selectedPerson = persons.first;
+    }
+
+    if (_selectedAccount == null) {
+      if (_isEditing && widget.loan!.accountId != null) {
+        _selectedAccount =
+            accountProvider.getAccountById(widget.loan!.accountId);
+      }
+      _selectedAccount ??= accountProvider.defaultAccount ??
+          (accountProvider.activeAccounts.isNotEmpty
+              ? accountProvider.activeAccounts.first
+              : null);
     }
   }
 
@@ -164,6 +186,45 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                 if ((double.tryParse(v) ?? 0) <= 0) return 'Must be > 0';
                 return null;
               },
+            ),
+            const SizedBox(height: 20),
+
+            // ── Account ─────────────────────────────────────────
+            _SectionLabel('Disbursement Account'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E2E),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<Account>(
+                  value: _selectedAccount,
+                  isExpanded: true,
+                  dropdownColor: const Color(0xFF1E1E2E),
+                  style: const TextStyle(color: Colors.white),
+                  items: context.watch<AccountProvider>().activeAccounts.map((acc) {
+                    return DropdownMenuItem(
+                      value: acc,
+                      child: Row(
+                        children: [
+                          Text(acc.icon, style: const TextStyle(fontSize: 18)),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(acc.name)),
+                          if (acc.isDefault)
+                            Text(' (Default)',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.4),
+                                    fontSize: 11)),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (val) => setState(() => _selectedAccount = val),
+                ),
+              ),
             ),
             const SizedBox(height: 20),
 
@@ -386,6 +447,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     final loan = Loan(
       id: widget.loan?.id,
       personId: _selectedPerson!.id!,
+      accountId: _selectedAccount?.id,
       type: _type,
       principalPaise: principalPaise,
       interestEnabled: _interestEnabled,
@@ -405,6 +467,8 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     } else {
       await provider.addLoan(loan);
     }
+
+    await context.read<AccountProvider>().loadAccounts();
 
     if (mounted) Navigator.pop(context);
   }

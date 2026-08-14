@@ -17,6 +17,7 @@ class LoanStatus {
 class Loan {
   final int? id;
   final int personId;
+  final int? accountId;
   final String type; // 'lent' | 'borrowed'
   final int principalPaise; // stored as amount × 100 for integer arithmetic
   final bool interestEnabled;
@@ -33,6 +34,7 @@ class Loan {
   const Loan({
     this.id,
     required this.personId,
+    this.accountId,
     required this.type,
     required this.principalPaise,
     required this.interestEnabled,
@@ -80,6 +82,7 @@ class Loan {
   Map<String, dynamic> toMap() => {
         'id': id,
         'person_id': personId,
+        'account_id': accountId,
         'type': type,
         'principal_paise': principalPaise,
         'interest_enabled': interestEnabled ? 1 : 0,
@@ -97,6 +100,7 @@ class Loan {
   factory Loan.fromMap(Map<String, dynamic> map) => Loan(
         id: map['id'] as int?,
         personId: map['person_id'] as int,
+        accountId: map['account_id'] as int?,
         type: map['type'] as String,
         principalPaise: map['principal_paise'] as int,
         interestEnabled: (map['interest_enabled'] as int) == 1,
@@ -116,6 +120,7 @@ class Loan {
   Loan copyWith({
     int? id,
     int? personId,
+    int? accountId,
     String? type,
     int? principalPaise,
     bool? interestEnabled,
@@ -131,6 +136,7 @@ class Loan {
       Loan(
         id: id ?? this.id,
         personId: personId ?? this.personId,
+        accountId: accountId ?? this.accountId,
         type: type ?? this.type,
         principalPaise: principalPaise ?? this.principalPaise,
         interestEnabled: interestEnabled ?? this.interestEnabled,

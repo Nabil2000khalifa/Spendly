@@ -4,6 +4,7 @@ import '../models/expense.dart';
 import '../models/category.dart';
 import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/account_provider.dart';
 
 class ExpenseCard extends StatelessWidget {
   final Expense expense;
@@ -19,9 +20,11 @@ class ExpenseCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final expenseProvider = context.watch<ExpenseProvider>();
+    final expenseProvider = context.read<ExpenseProvider>();
     final settingsProvider = context.watch<SettingsProvider>();
+    final accountProvider = context.watch<AccountProvider>();
     final category = expenseProvider.getCategoryById(expense.categoryId);
+    final account = accountProvider.getAccountById(expense.accountId);
     final isExpense = expense.isExpense;
 
     return Dismissible(
@@ -82,6 +85,19 @@ class ExpenseCard extends StatelessWidget {
                               fontSize: 12,
                             ),
                           ),
+                          if (account != null) ...[
+                            const SizedBox(width: 6),
+                            Text('·', style: TextStyle(color: Colors.white.withOpacity(0.3))),
+                            const SizedBox(width: 6),
+                            Text(
+                              account.name,
+                              style: TextStyle(
+                                color: Color(account.color),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                           const SizedBox(width: 8),
                           Container(
                             width: 3,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 class LoanLedgerEntry {
   final int? id;
   final int loanId;
+  final int? accountId;
   final String entryType; // 'principal' | 'payment' | 'interest' | 'adjustment' | 'cancellation'
   final int amountPaise; // always positive (× 100)
   final String description;
@@ -13,6 +14,7 @@ class LoanLedgerEntry {
   const LoanLedgerEntry({
     this.id,
     required this.loanId,
+    this.accountId,
     required this.entryType,
     required this.amountPaise,
     required this.description,
@@ -79,6 +81,7 @@ class LoanLedgerEntry {
   Map<String, dynamic> toMap() => {
         'id': id,
         'loan_id': loanId,
+        'account_id': accountId,
         'entry_type': entryType,
         'amount_paise': amountPaise,
         'description': description,
@@ -90,6 +93,7 @@ class LoanLedgerEntry {
   factory LoanLedgerEntry.fromMap(Map<String, dynamic> map) => LoanLedgerEntry(
         id: map['id'] as int?,
         loanId: map['loan_id'] as int,
+        accountId: map['account_id'] as int?,
         entryType: map['entry_type'] as String,
         amountPaise: map['amount_paise'] as int,
         description: map['description'] as String,

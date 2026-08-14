@@ -6,6 +6,8 @@ import '../models/budget.dart';
 import '../models/person.dart';
 import '../models/loan.dart';
 import '../models/loan_ledger_entry.dart';
+import '../models/account.dart';
+import '../models/transfer.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -25,7 +27,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -36,13 +38,25 @@ class DatabaseHelper {
   Future<void> _onCreate(Database db, int version) async {
     await _createExpenseTables(db);
     await _createLoanTables(db);
+    await _createAccountTables(db);
+    await _seedDefaultAccount(db);
   }
 
-  // ─── Migration (existing install v1 → v2) ─────────────────────────────────
+  // ─── Migration ─────────────────────────────────────────────────────────────
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await _createLoanTables(db);
+    }
+    if (oldVersion < 3) {
+      await _createAccountTables(db);
+      await db.execute('ALTER TABLE expenses ADD COLUMN account_id INTEGER REFERENCES accounts(id)');
+      await db.execute('ALTER TABLE loans ADD COLUMN account_id INTEGER REFERENCES accounts(id)');
+      await db.execute('ALTER TABLE loan_ledger ADD COLUMN account_id INTEGER REFERENCES accounts(id)');
+      final primaryId = await _seedDefaultAccount(db);
+      await db.execute('UPDATE expenses SET account_id = ? WHERE account_id IS NULL', [primaryId]);
+      await db.execute('UPDATE loans SET account_id = ? WHERE account_id IS NULL', [primaryId]);
+      await db.execute('UPDATE loan_ledger SET account_id = ? WHERE account_id IS NULL', [primaryId]);
     }
   }
 
@@ -127,15 +141,71 @@ class DatabaseHelper {
       CREATE TABLE loan_ledger (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         loan_id INTEGER NOT NULL,
+        account_id INTEGER,
         entry_type TEXT NOT NULL,
         amount_paise INTEGER NOT NULL,
         description TEXT NOT NULL,
         payment_method TEXT,
         entry_date TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        FOREIGN KEY (loan_id) REFERENCES loans(id)
+        FOREIGN KEY (loan_id) REFERENCES loans(id),
+        FOREIGN KEY (account_id) REFERENCES accounts(id)
       )
     ''');
+  }
+
+  // ─── Account Tables (v3) ───────────────────────────────────────────────────
+
+  Future<void> _createAccountTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        institution_name TEXT,
+        account_number_last4 TEXT,
+        opening_balance REAL NOT NULL DEFAULT 0.0,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        icon TEXT NOT NULL DEFAULT '🏦',
+        color INTEGER NOT NULL DEFAULT 4285326335,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE transfers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_account_id INTEGER NOT NULL,
+        to_account_id INTEGER NOT NULL,
+        amount REAL NOT NULL,
+        date TEXT NOT NULL,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (from_account_id) REFERENCES accounts(id),
+        FOREIGN KEY (to_account_id) REFERENCES accounts(id)
+      )
+    ''');
+  }
+
+  Future<int> _seedDefaultAccount(Database db) async {
+    final now = DateTime.now().toIso8601String();
+    return await db.insert('accounts', {
+      'name': 'Primary Account',
+      'type': 'bank',
+      'institution_name': null,
+      'account_number_last4': null,
+      'opening_balance': 0.0,
+      'currency': 'USD',
+      'icon': '🏦',
+      'color': 0xFF6C63FF,
+      'is_active': 1,
+      'is_default': 1,
+      'created_at': now,
+      'updated_at': now,
+    });
   }
 
   // ─── Categories ───────────────────────────────────────────────────────────
@@ -245,17 +315,26 @@ class DatabaseHelper {
 
   // ─── Statistics ───────────────────────────────────────────────────────────
 
-  Future<Map<int, double>> getExpensesByCategory(int month, int year) async {
+  Future<Map<int, double>> getExpensesByCategory(int month, int year, {int? accountId}) async {
     final db = await database;
     final start = DateTime(year, month, 1).toIso8601String();
     final end = DateTime(year, month + 1, 1).toIso8601String();
 
-    final result = await db.rawQuery('''
+    String query = '''
       SELECT category_id, SUM(amount) as total
       FROM expenses
       WHERE date >= ? AND date < ? AND type = 'expense'
-      GROUP BY category_id
-    ''', [start, end]);
+    ''';
+    final args = <dynamic>[start, end];
+
+    if (accountId != null) {
+      query += ' AND account_id = ?';
+      args.add(accountId);
+    }
+
+    query += ' GROUP BY category_id';
+
+    final result = await db.rawQuery(query, args);
 
     return {
       for (final row in result)
@@ -263,7 +342,7 @@ class DatabaseHelper {
     };
   }
 
-  Future<List<Map<String, dynamic>>> getMonthlyTotals(int months) async {
+  Future<List<Map<String, dynamic>>> getMonthlyTotals(int months, {int? accountId}) async {
     final db = await database;
     final now = DateTime.now();
     final results = <Map<String, dynamic>>[];
@@ -273,21 +352,27 @@ class DatabaseHelper {
       final start = DateTime(date.year, date.month, 1).toIso8601String();
       final end = DateTime(date.year, date.month + 1, 1).toIso8601String();
 
-      final expenseRow = await db.rawQuery('''
-        SELECT SUM(amount) as total FROM expenses
-        WHERE date >= ? AND date < ? AND type = 'expense'
-      ''', [start, end]);
+      String query = '''
+        SELECT 
+          SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expense,
+          SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as total_income
+        FROM expenses
+        WHERE date >= ? AND date < ?
+      ''';
+      final args = <dynamic>[start, end];
 
-      final incomeRow = await db.rawQuery('''
-        SELECT SUM(amount) as total FROM expenses
-        WHERE date >= ? AND date < ? AND type = 'income'
-      ''', [start, end]);
+      if (accountId != null) {
+        query += ' AND account_id = ?';
+        args.add(accountId);
+      }
 
+      final row = await db.rawQuery(query, args);
+      final first = row.first;
       results.add({
         'month': date.month,
         'year': date.year,
-        'expense': (expenseRow.first['total'] as num?)?.toDouble() ?? 0.0,
-        'income': (incomeRow.first['total'] as num?)?.toDouble() ?? 0.0,
+        'expense': (first['total_expense'] as num?)?.toDouble() ?? 0.0,
+        'income': (first['total_income'] as num?)?.toDouble() ?? 0.0,
       });
     }
 
@@ -426,5 +511,176 @@ class DatabaseHelper {
       JOIN loan_ledger ll ON ll.loan_id = l.id
       ORDER BY l.id, ll.entry_date
     ''');
+  }
+
+  // ─── Accounts ─────────────────────────────────────────────────────────────
+
+  Future<List<Account>> getAccounts({bool includeInactive = false}) async {
+    final db = await database;
+    final maps = await db.query(
+      'accounts',
+      where: includeInactive ? null : 'is_active = 1',
+      orderBy: 'is_default DESC, name ASC',
+    );
+    return maps.map(Account.fromMap).toList();
+  }
+
+  Future<Account?> getAccount(int id) async {
+    final db = await database;
+    final maps = await db.query('accounts', where: 'id = ?', whereArgs: [id], limit: 1);
+    if (maps.isEmpty) return null;
+    return Account.fromMap(maps.first);
+  }
+
+  Future<int> insertAccount(Account account) async {
+    final db = await database;
+    if (account.isDefault) {
+      await db.update('accounts', {'is_default': 0});
+    }
+    return await db.insert('accounts', account.toMap()..remove('id'));
+  }
+
+  Future<int> updateAccount(Account account) async {
+    final db = await database;
+    if (account.isDefault) {
+      await db.update('accounts', {'is_default': 0}, where: 'id != ?', whereArgs: [account.id]);
+    }
+    return await db.update('accounts', account.toMap(), where: 'id = ?', whereArgs: [account.id]);
+  }
+
+  Future<void> setDefaultAccount(int accountId) async {
+    final db = await database;
+    await db.update('accounts', {'is_default': 0});
+    await db.update(
+      'accounts',
+      {'is_default': 1, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [accountId],
+    );
+  }
+
+  Future<void> setAccountActive(int accountId, bool isActive) async {
+    final db = await database;
+    await db.update(
+      'accounts',
+      {'is_active': isActive ? 1 : 0, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [accountId],
+    );
+  }
+
+  Future<bool> hasAccountTransactions(int accountId) async {
+    final db = await database;
+    final expCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM expenses WHERE account_id = ?', [accountId])) ?? 0;
+    if (expCount > 0) return true;
+    final trCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM transfers WHERE from_account_id = ? OR to_account_id = ?', [accountId, accountId])) ?? 0;
+    if (trCount > 0) return true;
+    final loanCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM loans WHERE account_id = ?', [accountId])) ?? 0;
+    if (loanCount > 0) return true;
+    final ledgerCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM loan_ledger WHERE account_id = ?', [accountId])) ?? 0;
+    return ledgerCount > 0;
+  }
+
+  // ─── Account Balances Calculation ─────────────────────────────────────────
+
+  Future<double> getAccountBalance(int accountId) async {
+    final db = await database;
+    final accMap = await db.query('accounts', where: 'id = ?', whereArgs: [accountId], limit: 1);
+    if (accMap.isEmpty) return 0.0;
+    final account = Account.fromMap(accMap.first);
+    double balance = account.openingBalance;
+
+    // Expenses & Income
+    final expRes = await db.rawQuery('''
+      SELECT 
+        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense
+      FROM expenses
+      WHERE account_id = ?
+    ''', [accountId]);
+    if (expRes.isNotEmpty) {
+      final inc = (expRes.first['income'] as num?)?.toDouble() ?? 0.0;
+      final exp = (expRes.first['expense'] as num?)?.toDouble() ?? 0.0;
+      balance += inc - exp;
+    }
+
+    // Transfers In (+)
+    final trIn = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE to_account_id = ?', [accountId]);
+    if (trIn.isNotEmpty) {
+      balance += (trIn.first['total'] as num?)?.toDouble() ?? 0.0;
+    }
+
+    // Transfers Out (-)
+    final trOut = await db.rawQuery('SELECT SUM(amount) as total FROM transfers WHERE from_account_id = ?', [accountId]);
+    if (trOut.isNotEmpty) {
+      balance -= (trOut.first['total'] as num?)?.toDouble() ?? 0.0;
+    }
+
+    // Loans Lent principal (-) where loan account_id = accountId
+    final lentRes = await db.rawQuery('''
+      SELECT SUM(principal_paise) as total 
+      FROM loans 
+      WHERE type = 'lent' AND status != 'cancelled' AND account_id = ?
+    ''', [accountId]);
+    if (lentRes.isNotEmpty) {
+      balance -= ((lentRes.first['total'] as num?)?.toDouble() ?? 0.0) / 100.0;
+    }
+
+    // Loans Borrowed principal (+) where loan account_id = accountId
+    final borRes = await db.rawQuery('''
+      SELECT SUM(principal_paise) as total 
+      FROM loans 
+      WHERE type = 'borrowed' AND status != 'cancelled' AND account_id = ?
+    ''', [accountId]);
+    if (borRes.isNotEmpty) {
+      balance += ((borRes.first['total'] as num?)?.toDouble() ?? 0.0) / 100.0;
+    }
+
+    // Loan Payments & Repayments in ledger where account_id = accountId
+    final ledgerRes = await db.rawQuery('''
+      SELECT ll.amount_paise, l.type as loan_type
+      FROM loan_ledger ll
+      JOIN loans l ON ll.loan_id = l.id
+      WHERE ll.entry_type = 'payment' AND ll.account_id = ?
+    ''', [accountId]);
+    for (final row in ledgerRes) {
+      final amt = ((row['amount_paise'] as num).toDouble()) / 100.0;
+      final isLent = row['loan_type'] == 'lent';
+      if (isLent) {
+        balance += amt; // Money received back for money lent (+)
+      } else {
+        balance -= amt; // Money paid back for money borrowed (-)
+      }
+    }
+
+    return balance;
+  }
+
+  // ─── Transfers ─────────────────────────────────────────────────────────────
+
+  Future<int> insertTransfer(AccountTransfer transfer) async {
+    final db = await database;
+    return await db.insert('transfers', transfer.toMap()..remove('id'));
+  }
+
+  Future<List<AccountTransfer>> getTransfers({int? accountId}) async {
+    final db = await database;
+    List<Map<String, dynamic>> maps;
+    if (accountId != null) {
+      maps = await db.query(
+        'transfers',
+        where: 'from_account_id = ? OR to_account_id = ?',
+        whereArgs: [accountId, accountId],
+        orderBy: 'date DESC, created_at DESC',
+      );
+    } else {
+      maps = await db.query('transfers', orderBy: 'date DESC, created_at DESC');
+    }
+    return maps.map(AccountTransfer.fromMap).toList();
+  }
+
+  Future<int> deleteTransfer(int id) async {
+    final db = await database;
+    return await db.delete('transfers', where: 'id = ?', whereArgs: [id]);
   }
 }

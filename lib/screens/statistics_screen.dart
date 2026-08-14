@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/account_provider.dart';
+import '../models/account.dart';
 import '../widgets/chart_widgets.dart';
 
 class StatisticsScreen extends StatefulWidget {
@@ -17,6 +19,10 @@ class _StatisticsScreenState extends State<StatisticsScreen>
   Map<int, double> _categoryData = {};
   List<Map<String, dynamic>> _monthlyData = [];
   bool _loading = true;
+  int? _lastMonth;
+  int? _lastYear;
+  int? _selectedAccountId; // null = All Accounts
+  Object? _lastExpensesRef;
 
   static const _months = [
     '', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -27,7 +33,20 @@ class _StatisticsScreenState extends State<StatisticsScreen>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.watch<ExpenseProvider>();
+    if (_lastMonth != provider.selectedMonth ||
+        _lastYear != provider.selectedYear ||
+        _lastExpensesRef != provider.expenses) {
+      _lastMonth = provider.selectedMonth;
+      _lastYear = provider.selectedYear;
+      _lastExpensesRef = provider.expenses;
+      _loadData();
+    }
   }
 
   @override
@@ -36,12 +55,20 @@ class _StatisticsScreenState extends State<StatisticsScreen>
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _loadData() async {
+    if (_categoryData.isEmpty && _monthlyData.isEmpty) {
+      if (mounted) setState(() => _loading = true);
+    }
     final provider = context.read<ExpenseProvider>();
-    final cat = await provider.getCategoryBreakdown();
-    final monthly = await provider.getMonthlyTotals();
-    if (mounted) {
+    final targetMonth = provider.selectedMonth;
+    final targetYear = provider.selectedYear;
+
+    final cat = await provider.getCategoryBreakdown(accountId: _selectedAccountId);
+    final monthly = await provider.getMonthlyTotals(accountId: _selectedAccountId);
+
+    if (mounted &&
+        provider.selectedMonth == targetMonth &&
+        provider.selectedYear == targetYear) {
       setState(() {
         _categoryData = cat;
         _monthlyData = monthly;
@@ -54,9 +81,7 @@ class _StatisticsScreenState extends State<StatisticsScreen>
   Widget build(BuildContext context) {
     final provider = context.watch<ExpenseProvider>();
     final settings = context.watch<SettingsProvider>();
-
-    // Reload when month changes
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    final accountProvider = context.watch<AccountProvider>();
 
     return Scaffold(
       backgroundColor: const Color(0xFF12121F),
@@ -64,25 +89,72 @@ class _StatisticsScreenState extends State<StatisticsScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header ──────────────────────────────────────
+            // ── Header & Account Filter ────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Text(
-                    'Statistics',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Statistics',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '${_months[provider.selectedMonth]} ${provider.selectedYear}',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.4),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    '${_months[provider.selectedMonth]} ${provider.selectedYear}',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
-                      fontSize: 14,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1E2E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int?>(
+                        value: _selectedAccountId,
+                        dropdownColor: const Color(0xFF1E1E2E),
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('All Accounts'),
+                          ),
+                          ...accountProvider.allAccounts.map((acc) {
+                            return DropdownMenuItem<int?>(
+                              value: acc.id,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(acc.icon,
+                                      style: const TextStyle(fontSize: 14)),
+                                  const SizedBox(width: 6),
+                                  Text(acc.name),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedAccountId = val;
+                          });
+                          _loadData();
+                        },
+                      ),
                     ),
                   ),
                 ],
