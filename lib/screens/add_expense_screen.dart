@@ -128,7 +128,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       date: _selectedDate,
       note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
       type: _type,
-      currency: settings.currency,
+      // Use the selected account's currency — NOT the global settings currency.
+      // This is the root-cause fix for the USD/INR mismatch.
+      currency: _selectedAccount?.currency
+          ?? accountProvider.defaultAccount?.currency
+          ?? settings.currency,
     );
 
     if (_isEditing) {
@@ -244,7 +248,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
               decoration: _inputDeco(
                 hint: '0.00',
-                prefix: context.watch<SettingsProvider>().currencySymbol,
+                prefix: _selectedAccount?.currencySymbol
+                    ?? context.watch<SettingsProvider>().currencySymbol,
               ),
               validator: (v) {
                 if (v == null || v.isEmpty) return 'Enter amount';

@@ -84,6 +84,17 @@ class Account {
           
   double get openingBalance => openingBalancePaise / 100.0;
 
+  /// The symbol for this account's currency (e.g. '₹' for 'INR').
+  String get currencySymbol {
+    const symbols = {
+      'INR': '₹', 'USD': '\$', 'EUR': '€', 'GBP': '£',
+      'PKR': '₨', 'AED': 'د.إ', 'SAR': '﷼', 'JPY': '¥',
+      'CNY': '¥', 'CAD': 'C\$', 'AUD': 'A\$', 'BDT': '৳',
+      'MYR': 'RM', 'SGD': 'S\$',
+    };
+    return symbols[currency] ?? currency;
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

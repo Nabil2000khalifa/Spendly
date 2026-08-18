@@ -71,6 +71,7 @@ class _BottomNav extends StatelessWidget {
         ],
       ),
       child: SafeArea(
+        top: false,
         child: SizedBox(
           height: 64,
           child: Row(

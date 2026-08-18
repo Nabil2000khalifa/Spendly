@@ -27,7 +27,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -70,7 +70,7 @@ class DatabaseHelper {
             date TEXT NOT NULL,
             note TEXT,
             type TEXT NOT NULL DEFAULT 'expense',
-            currency TEXT NOT NULL DEFAULT 'USD',
+            currency TEXT NOT NULL DEFAULT 'INR',
             account_id INTEGER REFERENCES accounts(id),
             FOREIGN KEY (category_id) REFERENCES categories(id)
           )
@@ -110,7 +110,7 @@ class DatabaseHelper {
             institution_name TEXT,
             account_number_last4 TEXT,
             opening_balance_paise INTEGER NOT NULL DEFAULT 0,
-            currency TEXT NOT NULL DEFAULT 'USD',
+            currency TEXT NOT NULL DEFAULT 'INR',
             icon TEXT NOT NULL DEFAULT '🏦',
             color INTEGER NOT NULL DEFAULT 4285326335,
             is_active INTEGER NOT NULL DEFAULT 1,
@@ -148,6 +148,24 @@ class DatabaseHelper {
         await txn.execute('ALTER TABLE transfers_v4 RENAME TO transfers');
       });
     }
+    if (oldVersion < 5) {
+      // ─── v4 → v5: Normalise expense currency to match account currency ───
+      // Expenses that still carry 'USD' from the old global-default bug are
+      // updated to the currency of their linked account.  If the account
+      // itself has 'USD' (a genuine USD account) the value stays unchanged.
+      await db.execute('''
+        UPDATE expenses
+        SET currency = (
+          SELECT a.currency FROM accounts a WHERE a.id = expenses.account_id
+        )
+        WHERE account_id IS NOT NULL
+          AND currency = 'USD'
+          AND EXISTS (
+            SELECT 1 FROM accounts a
+            WHERE a.id = expenses.account_id AND a.currency != 'USD'
+          )
+      ''');
+    }
   }
 
   // ─── Expense Tables (unchanged from v1) ───────────────────────────────────
@@ -171,7 +189,7 @@ class DatabaseHelper {
         date TEXT NOT NULL,
         note TEXT,
         type TEXT NOT NULL DEFAULT 'expense',
-        currency TEXT NOT NULL DEFAULT 'USD',
+        currency TEXT NOT NULL DEFAULT 'INR',
         account_id INTEGER REFERENCES accounts(id),
         FOREIGN KEY (category_id) REFERENCES categories(id)
       )
@@ -257,7 +275,7 @@ class DatabaseHelper {
         institution_name TEXT,
         account_number_last4 TEXT,
         opening_balance_paise INTEGER NOT NULL DEFAULT 0,
-        currency TEXT NOT NULL DEFAULT 'USD',
+        currency TEXT NOT NULL DEFAULT 'INR',
         icon TEXT NOT NULL DEFAULT '🏦',
         color INTEGER NOT NULL DEFAULT 4285326335,
         is_active INTEGER NOT NULL DEFAULT 1,
@@ -282,7 +300,7 @@ class DatabaseHelper {
     ''');
   }
 
-  Future<int> _seedDefaultAccount(Database db) async {
+  Future<int> _seedDefaultAccount(Database db, {String currency = 'INR'}) async {
     final now = DateTime.now().toIso8601String();
     return await db.insert('accounts', {
       'name': 'Primary Account',
@@ -290,13 +308,53 @@ class DatabaseHelper {
       'institution_name': null,
       'account_number_last4': null,
       'opening_balance_paise': 0,
-      'currency': 'USD',
+      'currency': currency,
       'icon': '🏦',
       'color': 0xFF6C63FF,
       'is_active': 1,
       'is_default': 1,
       'created_at': now,
       'updated_at': now,
+    });
+  }
+
+  // ─── Clear All User Data ──────────────────────────────────────────────────
+
+  /// Completely wipes all user financial data and re-seeds default categories.
+  /// Does NOT delete the database itself or migration metadata.
+  Future<void> clearAllUserData() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // Delete in order to respect foreign key relationships
+      await txn.delete('loan_ledger');
+      await txn.delete('loans');
+      await txn.delete('persons');
+      await txn.delete('expenses');
+      await txn.delete('budgets');
+      await txn.delete('transfers');
+      await txn.delete('accounts');
+      // Remove user-created categories (keep none — reseed defaults)
+      await txn.delete('categories');
+      // Re-seed default categories
+      for (final cat in defaultCategories) {
+        await txn.insert('categories', cat.toMap()..remove('id'));
+      }
+      // Re-seed the primary account with INR
+      final now = DateTime.now().toIso8601String();
+      await txn.insert('accounts', {
+        'name': 'Primary Account',
+        'type': 'bank',
+        'institution_name': null,
+        'account_number_last4': null,
+        'opening_balance_paise': 0,
+        'currency': 'INR',
+        'icon': '🏦',
+        'color': 0xFF6C63FF,
+        'is_active': 1,
+        'is_default': 1,
+        'created_at': now,
+        'updated_at': now,
+      });
     });
   }
 

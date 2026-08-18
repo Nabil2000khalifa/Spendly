@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/expense.dart';
 import '../models/category.dart';
@@ -21,11 +21,15 @@ class ExpenseCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final expenseProvider = context.read<ExpenseProvider>();
-    final settingsProvider = context.watch<SettingsProvider>();
     final accountProvider = context.watch<AccountProvider>();
     final category = expenseProvider.getCategoryById(expense.categoryId);
     final account = accountProvider.getAccountById(expense.accountId);
     final isExpense = expense.isExpense;
+
+    // Use the expense's own currency symbol — NOT the global settings symbol
+    final currencySymbol = SettingsProvider.symbolForCurrency(expense.currency);
+    final amountText =
+        '${isExpense ? '-' : '+'}$currencySymbol${_formatAmount(expense.amount)}';
 
     return Dismissible(
       key: Key('expense_${expense.id}'),
@@ -54,13 +58,12 @@ class ExpenseCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Category icon bubble
                 _CategoryBubble(category: category),
-                const SizedBox(width: 14),
-                // Title + date
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -69,60 +72,67 @@ class ExpenseCard extends StatelessWidget {
                         expense.title,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 15,
+                          fontSize: 14,
                           fontWeight: FontWeight.w600,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       Row(
                         children: [
-                          Text(
-                            category?.name ?? 'Unknown',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.5),
-                              fontSize: 12,
+                          Flexible(
+                            child: Text(
+                              category?.name ?? 'Unknown',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.5),
+                                fontSize: 11,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (account != null) ...[
-                            const SizedBox(width: 6),
-                            Text('·', style: TextStyle(color: Colors.white.withOpacity(0.3))),
-                            const SizedBox(width: 6),
-                            Text(
-                              account.name,
-                              style: TextStyle(
-                                color: Color(account.color),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              child: Text(
+                                '·',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.3),
+                                    fontSize: 11),
+                              ),
+                            ),
+                            Flexible(
+                              child: Text(
+                                account.name,
+                                style: TextStyle(
+                                  color: Color(account.color),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
-                          const SizedBox(width: 8),
-                          Container(
-                            width: 3,
-                            height: 3,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.3),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _formatDate(expense.date),
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.5),
-                              fontSize: 12,
-                            ),
-                          ),
                         ],
                       ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatDate(expense.date),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.38),
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       if (expense.note != null && expense.note!.isNotEmpty) ...[
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           expense.note!,
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.35),
+                            color: Colors.white.withOpacity(0.32),
                             fontSize: 11,
                             fontStyle: FontStyle.italic,
                           ),
@@ -133,27 +143,28 @@ class ExpenseCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                // Amount
+                const SizedBox(width: 8),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${isExpense ? '-' : '+'}${settingsProvider.formatAmount(expense.amount)}',
+                      amountText,
                       style: TextStyle(
                         color: isExpense
                             ? const Color(0xFFFF6B6B)
                             : const Color(0xFF10B981),
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       expense.currency,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.35),
-                        fontSize: 11,
+                        color: Colors.white.withOpacity(0.32),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -166,18 +177,26 @@ class ExpenseCard extends StatelessWidget {
     );
   }
 
+  String _formatAmount(double amount) {
+    if (amount.abs() >= 1000000) return '${(amount / 1000000).toStringAsFixed(1)}M';
+    if (amount.abs() >= 1000) return '${(amount / 1000).toStringAsFixed(1)}K';
+    return amount.toStringAsFixed(2);
+  }
+
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final expDate = DateTime(date.year, date.month, date.day);
     final diff = today.difference(expDate).inDays;
-
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Yesterday';
-    final months = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec'
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
+    if (date.year != now.year) {
+      return '${date.day} ${months[date.month - 1]} ${date.year}';
+    }
     return '${date.day} ${months[date.month - 1]}';
   }
 }
@@ -193,17 +212,17 @@ class _CategoryBubble extends StatelessWidget {
         : const Color(0xFF6B7280);
 
     return Container(
-      width: 46,
-      height: 46,
+      width: 44,
+      height: 44,
       decoration: BoxDecoration(
         color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.3), width: 1),
       ),
       child: Center(
         child: Text(
           category?.icon ?? '📦',
-          style: const TextStyle(fontSize: 22),
+          style: const TextStyle(fontSize: 20),
         ),
       ),
     );

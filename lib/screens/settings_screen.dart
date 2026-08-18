@@ -9,6 +9,8 @@ import 'package:csv/csv.dart';
 import '../providers/expense_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/loan_provider.dart';
+import '../providers/account_provider.dart';
+import '../db/database_helper.dart';
 import '../widgets/app_logo.dart';
 import 'package:intl/intl.dart';
 import 'accounts_screen.dart';
@@ -367,10 +369,12 @@ class SettingsScreen extends StatelessWidget {
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E2E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Delete All Data?',
+        title: const Text('Clear All Data?',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: const Text(
-          'This will permanently delete ALL transactions. This action cannot be undone.',
+          'This will permanently delete ALL transactions, accounts, '
+          'budgets, loans, and persons.\n\nDefault categories and a '
+          'primary account will be re-created.\n\nThis cannot be undone.',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -386,7 +390,7 @@ class SettingsScreen extends StatelessWidget {
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Delete All',
+            child: const Text('Delete Everything',
                 style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -394,9 +398,21 @@ class SettingsScreen extends StatelessWidget {
     );
 
     if (ok == true && context.mounted) {
-      await context.read<ExpenseProvider>().deleteAllExpenses();
+      // Clear all user data in the database (all tables)
+      await DatabaseHelper().clearAllUserData();
+
+      if (!context.mounted) return;
+      // Reload all providers so the UI reflects the empty state
+      await context.read<ExpenseProvider>().init();
+      await context.read<AccountProvider>().init();
+      await context.read<LoanProvider>().init();
+
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('All data deleted')),
+        const SnackBar(
+          content: Text('All data cleared. App has been reset.'),
+          backgroundColor: Color(0xFF10B981),
+        ),
       );
     }
   }

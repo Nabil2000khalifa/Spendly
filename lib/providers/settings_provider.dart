@@ -5,17 +5,18 @@ class SettingsProvider extends ChangeNotifier {
   static const _keyCurrency = 'currency';
   static const _keyCurrencySymbol = 'currency_symbol';
 
-  String _currency = 'USD';
-  String _currencySymbol = '\$';
+  // Default to INR — users can change in Settings
+  String _currency = 'INR';
+  String _currencySymbol = '₹';
 
   String get currency => _currency;
   String get currencySymbol => _currencySymbol;
 
   static const List<Map<String, String>> supportedCurrencies = [
+    {'code': 'INR', 'symbol': '₹',  'name': 'Indian Rupee'},
     {'code': 'USD', 'symbol': '\$',  'name': 'US Dollar'},
     {'code': 'EUR', 'symbol': '€',  'name': 'Euro'},
     {'code': 'GBP', 'symbol': '£',  'name': 'British Pound'},
-    {'code': 'INR', 'symbol': '₹',  'name': 'Indian Rupee'},
     {'code': 'PKR', 'symbol': '₨',  'name': 'Pakistani Rupee'},
     {'code': 'AED', 'symbol': 'د.إ','name': 'UAE Dirham'},
     {'code': 'SAR', 'symbol': '﷼',  'name': 'Saudi Riyal'},
@@ -28,10 +29,21 @@ class SettingsProvider extends ChangeNotifier {
     {'code': 'SGD', 'symbol': 'S\$','name': 'Singapore Dollar'},
   ];
 
+  /// Returns the currency symbol for a given currency code.
+  /// Falls back to the code itself if not found.
+  static String symbolForCurrency(String code) {
+    if (code.isEmpty) return '';
+    final found = supportedCurrencies.firstWhere(
+      (c) => c['code'] == code,
+      orElse: () => {'symbol': code},
+    );
+    return found['symbol'] ?? code;
+  }
+
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _currency = prefs.getString(_keyCurrency) ?? 'USD';
-    _currencySymbol = prefs.getString(_keyCurrencySymbol) ?? '\$';
+    _currency = prefs.getString(_keyCurrency) ?? 'INR';
+    _currencySymbol = prefs.getString(_keyCurrencySymbol) ?? '₹';
     notifyListeners();
   }
 
@@ -44,16 +56,36 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Format amount using the global settings currency symbol.
   String formatAmount(double amount) {
-    if (amount >= 1000000) {
-      return '$_currencySymbol${(amount / 1000000).toStringAsFixed(1)}M';
-    } else if (amount >= 1000) {
-      return '$_currencySymbol${(amount / 1000).toStringAsFixed(1)}K';
-    }
-    return '$_currencySymbol${amount.toStringAsFixed(2)}';
+    return _formatWithSymbol(amount, _currencySymbol, abbreviate: true);
   }
 
+  /// Format amount using the global settings currency symbol (full precision).
   String formatAmountFull(double amount) {
-    return '$_currencySymbol${amount.toStringAsFixed(2)}';
+    return _formatWithSymbol(amount, _currencySymbol, abbreviate: false);
+  }
+
+  /// Format amount using a specific currency code's symbol.
+  String formatAmountForCurrency(double amount, String currencyCode) {
+    final symbol = symbolForCurrency(currencyCode);
+    return _formatWithSymbol(amount, symbol, abbreviate: true);
+  }
+
+  /// Format amount using a specific currency code's symbol (full precision).
+  String formatAmountFullForCurrency(double amount, String currencyCode) {
+    final symbol = symbolForCurrency(currencyCode);
+    return _formatWithSymbol(amount, symbol, abbreviate: false);
+  }
+
+  String _formatWithSymbol(double amount, String symbol, {required bool abbreviate}) {
+    if (abbreviate) {
+      if (amount.abs() >= 1000000) {
+        return '$symbol${(amount / 1000000).toStringAsFixed(1)}M';
+      } else if (amount.abs() >= 1000) {
+        return '$symbol${(amount / 1000).toStringAsFixed(1)}K';
+      }
+    }
+    return '$symbol${amount.toStringAsFixed(2)}';
   }
 }

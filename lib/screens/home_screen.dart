@@ -77,14 +77,29 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: BalanceCard(
-                  balance: settings.formatAmountFull(accountProvider.totalBalance),
-                  income: settings.formatAmount(provider.totalIncome),
-                  expense: settings.formatAmount(provider.totalExpenses),
-                  currencyCode: settings.currency,
+                  // For single-currency: use primary account's formatting
+                  balance: accountProvider.isMultiCurrency
+                      ? ''
+                      : settings.formatAmountFullForCurrency(
+                          accountProvider.totalBalance,
+                          accountProvider.defaultAccount?.currency
+                              ?? settings.currency,
+                        ),
+                  income: settings.formatAmountForCurrency(
+                    provider.totalIncome,
+                    accountProvider.defaultAccount?.currency ?? settings.currency,
+                  ),
+                  expense: settings.formatAmountForCurrency(
+                    provider.totalExpenses,
+                    accountProvider.defaultAccount?.currency ?? settings.currency,
+                  ),
+                  currencyCode: accountProvider.defaultAccount?.currency
+                      ?? settings.currency,
                   multiCurrencyBalances: accountProvider.isMultiCurrency
-                      ? accountProvider.balancesByCurrency.entries
-                          .map((e) => '${e.key} ${settings.formatAmountFull(e.value).replaceAll(settings.currencySymbol, '')}')
-                          .toList()
+                      ? accountProvider.balancesByCurrency.entries.map((e) {
+                          final sym = SettingsProvider.symbolForCurrency(e.key);
+                          return '$sym${e.value.toStringAsFixed(2)} ${e.key}';
+                        }).toList()
                       : null,
                 ),
               ),
@@ -130,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 10),
                     SizedBox(
-                      height: 72,
+                      height: 88,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
                         itemCount: accountProvider.activeAccounts.length,
@@ -150,6 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               margin: const EdgeInsets.only(right: 12),
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 14, vertical: 10),
+                              constraints: const BoxConstraints(minWidth: 120, maxWidth: 200),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF1E1E2E),
                                 borderRadius: BorderRadius.circular(16),
@@ -160,6 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Container(
                                     width: 36,
@@ -174,29 +191,34 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 10),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        acc.name,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.bold,
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          acc.name,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                      ),
-                                      Text(
-                                        settings.formatAmount(bal),
-                                        style: TextStyle(
-                                          color: bal >= 0
-                                              ? const Color(0xFF10B981)
-                                              : const Color(0xFFFF6B6B),
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
+                                        Text(
+                                          // Use account's OWN currency symbol
+                                          '${acc.currencySymbol}${bal >= 0 ? '' : '-'}${bal.abs() >= 1000 ? '${(bal.abs() / 1000).toStringAsFixed(1)}K' : bal.abs().toStringAsFixed(2)}',
+                                          style: TextStyle(
+                                            color: bal >= 0
+                                                ? const Color(0xFF10B981)
+                                                : const Color(0xFFFF6B6B),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),

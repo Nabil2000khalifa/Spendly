@@ -95,18 +95,22 @@ class AccountsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   if (accountProvider.isMultiCurrency) ...[
-                    ...accountProvider.balancesByCurrency.entries.map((e) => Text(
-                          '${e.key} ${settings.formatAmountFull(e.value).replaceAll(settings.currencySymbol, '')}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: -0.5,
-                          ),
-                        )),
+                    ...accountProvider.balancesByCurrency.entries.map((e) {
+                      final sym = SettingsProvider.symbolForCurrency(e.key);
+                      return Text(
+                        '$sym${e.value.toStringAsFixed(2)} ${e.key}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.5,
+                        ),
+                      );
+                    }),
                   ] else ...[
                     Text(
-                      settings.formatAmountFull(totalBalance),
+                      // Use the first active account's currency symbol
+                      '${active.isNotEmpty ? active.first.currencySymbol : settings.currencySymbol}${totalBalance.toStringAsFixed(2)}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 32,
@@ -332,7 +336,8 @@ class _AccountCard extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Text(
-              settings.formatAmount(balance),
+              // Use account's own currency symbol — not global settings
+              '${account.currencySymbol}${balance >= 0 ? '' : '-'}${balance.abs() >= 1000 ? '${(balance.abs() / 1000).toStringAsFixed(1)}K' : balance.abs().toStringAsFixed(2)}',
               style: TextStyle(
                 color: isInactive
                     ? Colors.white38

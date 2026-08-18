@@ -23,6 +23,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   String _icon = '🏦';
   int _color = 0xFF6C63FF;
   bool _isDefault = false;
+  String _currency = 'INR'; // per-account currency, set in initState
 
   bool get _isEditing => widget.account != null;
 
@@ -54,8 +55,22 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
       _icon = a.icon;
       _color = a.color;
       _isDefault = a.isDefault;
+      _currency = a.currency;
     } else {
       _openingBalanceCtrl.text = '0';
+      // Default currency will be set from settings in didChangeDependencies
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isEditing) {
+      // Suggest the global settings currency as a starting point
+      final settings = context.read<SettingsProvider>();
+      if (_currency == 'INR' && settings.currency != _currency) {
+        setState(() => _currency = settings.currency);
+      }
     }
   }
 
@@ -147,6 +162,64 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
               ),
 
               const SizedBox(height: 20),
+
+              // ── Currency ──────────────────────────────────────────────
+              const Text('Currency',
+                  style: TextStyle(color: Colors.white70, fontSize: 13)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E2E),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.white.withOpacity(0.08)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _currency,
+                    isExpanded: true,
+                    dropdownColor: const Color(0xFF1E1E2E),
+                    style: const TextStyle(color: Colors.white),
+                    icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                        color: Color(0xFF6C63FF)),
+                    items: SettingsProvider.supportedCurrencies.map((cur) {
+                      return DropdownMenuItem<String>(
+                        value: cur['code'],
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF6C63FF).withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  cur['symbol']!,
+                                  style: const TextStyle(
+                                    color: Color(0xFF6C63FF),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              '${cur['name']} (${cur['code']})',
+                              style: const TextStyle(color: Colors.white, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) setState(() => _currency = val);
+                    },
+                  ),
+                ),
+              ),
 
               // ── Institution & Last 4 Digits Row ───────────────
               Row(
@@ -352,7 +425,6 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     final inst = _institutionCtrl.text.trim();
     final last4 = _last4Ctrl.text.trim();
     final openingBal = double.tryParse(_openingBalanceCtrl.text.trim()) ?? 0.0;
-    final settings = context.read<SettingsProvider>();
     final accountProvider = context.read<AccountProvider>();
 
     final now = DateTime.now();
@@ -364,7 +436,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
         institutionName: inst.isNotEmpty ? inst : null,
         accountNumberLast4: last4.isNotEmpty ? last4 : null,
         openingBalancePaise: (openingBal * 100).round(),
-        currency: settings.currency,
+        currency: _currency,
         icon: _icon,
         color: _color,
         isDefault: _isDefault,
@@ -378,7 +450,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
         institutionName: inst.isNotEmpty ? inst : null,
         accountNumberLast4: last4.isNotEmpty ? last4 : null,
         openingBalancePaise: (openingBal * 100).round(),
-        currency: settings.currency,
+        currency: _currency,
         icon: _icon,
         color: _color,
         isDefault: _isDefault,
